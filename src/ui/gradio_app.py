@@ -18,13 +18,18 @@ from common.logging_config import capture_exceptions, get_logger
 
 # Import from services (new architecture)
 from services.analysis_service import perform_analysis
+from services.filtering_service import (
+    filter_data,
+    update_filter_visibility, 
+    apply_filter_and_sort,
+    get_unique_values,
+    update_filter_dropdowns
+)
 
 # Import legacy functions directly (temporary during migration)
 from legacy_app import (
     
-    # Data filtering and processing
-    filter_data,
-    update_filter_visibility,
+    # Data loading and processing
     load_and_update,
     
     # Pivot table functions
@@ -37,9 +42,6 @@ from legacy_app import (
     
     # WiFi error analysis
     analyze_wifi_errors,
-    
-    # Advanced filtering
-    apply_filter_and_sort,
     
     # IMEI extraction
     process_data,
