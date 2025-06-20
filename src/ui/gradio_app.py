@@ -16,10 +16,11 @@ from datetime import datetime
 from common.io import load_data
 from common.logging_config import capture_exceptions, get_logger
 
+# Import from services (new architecture)
+from services.analysis_service import perform_analysis
+
 # Import legacy functions directly (temporary during migration)
 from legacy_app import (
-    # Analysis functions
-    perform_analysis,
     
     # Data filtering and processing
     filter_data,
@@ -480,7 +481,9 @@ with gr.Blocks(theme=gr.themes.Soft(), css="""
     def perform_analysis_wrapped(csv_file):
         """Wrapper for perform_analysis with error handling."""
         logger.info("Performing CSV analysis")
-        return perform_analysis(csv_file)
+        # Convert file to DataFrame before passing to service
+        df = load_data(csv_file)
+        return perform_analysis(df)
     
     @capture_exceptions(user_message="Filter update failed", return_value=None)
     def update_filter_visibility_wrapped(filter_type):
