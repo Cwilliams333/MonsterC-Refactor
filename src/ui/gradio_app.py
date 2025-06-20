@@ -25,15 +25,20 @@ from services.filtering_service import (
     get_unique_values,
     update_filter_dropdowns
 )
+from services.pivot_service import (
+    generate_pivot_table_filtered,
+    create_pivot_table,
+    apply_filters,
+    find_top_failing_stations,
+    analyze_top_models,
+    analyze_top_test_cases
+)
 
 # Import legacy functions directly (temporary during migration)
 from legacy_app import (
     
     # Data loading and processing
     load_and_update,
-    
-    # Pivot table functions
-    generate_pivot_table_filtered,
     
     # Repeated failures analysis
     analyze_repeated_failures,
