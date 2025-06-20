@@ -33,17 +33,17 @@ from services.pivot_service import (
     analyze_top_models,
     analyze_top_test_cases
 )
+from services.repeated_failures_service import (
+    analyze_repeated_failures,
+    update_summary_chart_and_data,
+    handle_test_case_selection
+)
 
 # Import legacy functions directly (temporary during migration)
 from legacy_app import (
     
     # Data loading and processing
     load_and_update,
-    
-    # Repeated failures analysis
-    analyze_repeated_failures,
-    update_summary_chart_and_data,
-    handle_test_case_selection,
     
     # WiFi error analysis
     analyze_wifi_errors,
