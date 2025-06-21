@@ -255,9 +255,9 @@ def transform_pivot_to_tree_data(pivot_df: pd.DataFrame) -> List[Dict[str, Any]]
         return []
 
     hierarchical_data = []
-    station_cols = [
-        col for col in pivot_df.columns if col not in ["result_FAIL", "Model"]
-    ]
+    
+    # Sort stations by total failures (highest first) - show the money columns first!
+    station_cols = sort_stations_by_total_errors(pivot_df)
 
     # Group by test case to create hierarchy
     grouped = pivot_df.groupby("result_FAIL")
@@ -318,6 +318,36 @@ def transform_pivot_to_tree_data(pivot_df: pd.DataFrame) -> List[Dict[str, Any]]
     return hierarchical_data
 
 
+def sort_stations_by_total_errors(pivot_df: pd.DataFrame) -> List[str]:
+    """
+    Sort station columns by total error count (highest first) to show the money columns up front.
+    
+    Args:
+        pivot_df: DataFrame with station columns
+        
+    Returns:
+        List of station column names sorted by total errors (descending)
+    """
+    # Handle both error analysis and failure analysis column structures
+    excluded_cols = ["error_code", "error_message", "Model", "result_FAIL"]
+    station_cols = [
+        col for col in pivot_df.columns 
+        if col not in excluded_cols
+    ]
+    
+    # Calculate total errors per station
+    station_totals = {}
+    for col in station_cols:
+        station_totals[col] = pivot_df[col].sum()
+    
+    # Sort by total errors (highest first) - this puts the action up front
+    sorted_stations = sorted(station_totals.items(), key=lambda x: x[1], reverse=True)
+    
+    logger.info(f"Station totals (sorted): {[(station, total) for station, total in sorted_stations[:10]]}")
+    
+    return [station for station, total in sorted_stations]
+
+
 def transform_error_pivot_to_tree_data(pivot_df: pd.DataFrame) -> List[Dict[str, Any]]:
     """
     Transform error analysis pivot into hierarchical display with correct structure:
@@ -333,10 +363,9 @@ def transform_error_pivot_to_tree_data(pivot_df: pd.DataFrame) -> List[Dict[str,
         return []
 
     hierarchical_data = []
-    station_cols = [
-        col for col in pivot_df.columns 
-        if col not in ["error_code", "error_message", "Model"]
-    ]
+    
+    # Sort stations by total errors (highest first) - show the money columns first!
+    station_cols = sort_stations_by_total_errors(pivot_df)
 
     # Create "Total Errors" summary row (aggregates everything)
     total_row = {"hierarchy": "📊 Total Errors", "isGroup": True}
@@ -448,7 +477,20 @@ def create_column_definitions(data: List[Dict[str, Any]], analysis_type: str = "
         )
 
     # Add station columns with highlighting for max values per row
+    # Get sorted station columns (excluding hierarchy) - money columns first!
     station_columns = [col for col in display_columns if col != "hierarchy"]
+    
+    # If we have hierarchical data, try to get the sorted order from the first data row
+    if data and any("📊" in str(row.get("hierarchy", "")) for row in data):
+        # Extract station columns in the order they appear in the data (already sorted by our function)
+        first_data_row = next((row for row in data if row.get("hierarchy") == "📊 Total Errors"), {})
+        if first_data_row:
+            # Get station columns ordered by their values in the total row (highest first)
+            station_totals = [(col, val) for col, val in first_data_row.items() 
+                             if col not in ["hierarchy", "isGroup", "maxTotalFields"] and isinstance(val, (int, float))]
+            station_totals.sort(key=lambda x: x[1], reverse=True)
+            station_columns = [col for col, val in station_totals]
+    
     for col in station_columns:
         column_defs.append(
             {
