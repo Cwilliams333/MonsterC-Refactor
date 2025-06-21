@@ -480,16 +480,20 @@ def create_column_definitions(data: List[Dict[str, Any]], analysis_type: str = "
     # Get sorted station columns (excluding hierarchy) - money columns first!
     station_columns = [col for col in display_columns if col != "hierarchy"]
     
-    # If we have hierarchical data, try to get the sorted order from the first data row
+    # If we have hierarchical data, extract station columns from the Total Errors row (already sorted)
     if data and any("📊" in str(row.get("hierarchy", "")) for row in data):
-        # Extract station columns in the order they appear in the data (already sorted by our function)
-        first_data_row = next((row for row in data if row.get("hierarchy") == "📊 Total Errors"), {})
+        first_data_row = next((row for row in data if "📊 Total Errors" in str(row.get("hierarchy", ""))), {})
         if first_data_row:
-            # Get station columns ordered by their values in the total row (highest first)
-            station_totals = [(col, val) for col, val in first_data_row.items() 
-                             if col not in ["hierarchy", "isGroup", "maxTotalFields"] and isinstance(val, (int, float))]
-            station_totals.sort(key=lambda x: x[1], reverse=True)
-            station_columns = [col for col, val in station_totals]
+            # Extract all station columns (already in sorted order from our transformation)
+            station_columns = [
+                col for col in first_data_row.keys() 
+                if col not in ["hierarchy", "isGroup", "maxTotalFields", "maxValueFields"]
+            ]
+            logger.info(f"Extracted {len(station_columns)} station columns from data: {station_columns[:5]}...")
+        else:
+            logger.warning("Could not find Total Errors row for column extraction")
+    else:
+        logger.warning("No hierarchical data found for column extraction")
     
     for col in station_columns:
         column_defs.append(
