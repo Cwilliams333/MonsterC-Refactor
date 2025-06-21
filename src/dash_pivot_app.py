@@ -219,27 +219,6 @@ app.layout = html.Div(
                                 ),
                             ]
                         ),
-                        # Light gray row explanation (for message rows)
-                        html.Div(
-                            [
-                                html.Div(
-                                    style={
-                                        "width": "20px",
-                                        "height": "20px",
-                                        "backgroundColor": "#f8f9fa",
-                                        "display": "inline-block",
-                                        "marginRight": "8px",
-                                        "verticalAlign": "middle",
-                                        "border": "1px solid #dee2e6",
-                                    }
-                                ),
-                                html.Span(
-                                    "Error message rows (blank values, descriptive only)",
-                                    style={"verticalAlign": "middle", "fontStyle": "italic"},
-                                ),
-                            ],
-                            style={"marginBottom": "8px"},
-                        ),
                     ],
                     style={
                         "textAlign": "left",
@@ -341,13 +320,14 @@ def transform_pivot_to_tree_data(pivot_df: pd.DataFrame) -> List[Dict[str, Any]]
 
 def transform_error_pivot_to_tree_data(pivot_df: pd.DataFrame) -> List[Dict[str, Any]]:
     """
-    Transform error analysis pivot (Model → Error Code → Error Message) into hierarchical display.
+    Transform error analysis pivot into hierarchical display with correct structure:
+    📊 Total Errors → 📂 Error Code (Message) → └─ Model
     
     Args:
-        pivot_df: DataFrame with columns [Model, error_code, error_message, ...station_cols]
+        pivot_df: DataFrame with columns [error_code, error_message, Model, ...station_cols]
     
     Returns:
-        List of dictionaries with 3-level visual hierarchy formatting
+        List of dictionaries with proper 3-level visual hierarchy
     """
     if pivot_df.empty:
         return []
@@ -355,76 +335,79 @@ def transform_error_pivot_to_tree_data(pivot_df: pd.DataFrame) -> List[Dict[str,
     hierarchical_data = []
     station_cols = [
         col for col in pivot_df.columns 
-        if col not in ["Model", "error_code", "error_message"]
+        if col not in ["error_code", "error_message", "Model"]
     ]
 
-    # Group by Model (top level)
-    model_grouped = pivot_df.groupby("Model")
+    # Create "Total Errors" summary row (aggregates everything)
+    total_row = {"hierarchy": "📊 Total Errors", "isGroup": True}
+    total_values = {}
+    for col in station_cols:
+        total_val = pivot_df[col].sum()
+        total_row[col] = total_val
+        total_values[col] = total_val
 
-    for model, model_group in model_grouped:
-        # Create Model parent row (level 1) with aggregated totals
-        model_row = {"hierarchy": f"📁 {model}", "isGroup": True}
+    # Find highest station total for red highlighting
+    if total_values:
+        max_total = max(total_values.values())
+        max_cols = [
+            col for col, val in total_values.items() 
+            if val == max_total and val > 0
+        ]
+        total_row["maxTotalFields"] = max_cols
+    else:
+        total_row["maxTotalFields"] = []
 
-        # Add aggregated station values for model
-        model_totals = {}
+    hierarchical_data.append(total_row)
+
+    # Group by error_code (unique values only - no duplicates)
+    error_grouped = pivot_df.groupby(["error_code", "error_message"])
+
+    for (error_code, error_message), error_group in error_grouped:
+        # Create Error Code folder (level 2) with subtotals
+        error_row = {"hierarchy": f"📂 {error_code} - {error_message}", "isGroup": True}
+
+        # Add aggregated station values for this error code
+        error_totals = {}
         for col in station_cols:
-            total_val = model_group[col].sum()
-            model_row[col] = total_val
-            model_totals[col] = total_val
+            total_val = error_group[col].sum()
+            error_row[col] = total_val
+            error_totals[col] = total_val
 
-        # Find highest station total for model (red highlighting)
-        if model_totals:
-            max_total = max(model_totals.values())
+        # Find highest station total for error code (red highlighting)
+        if error_totals:
+            max_total = max(error_totals.values())
             max_cols = [
-                col for col, val in model_totals.items() 
+                col for col, val in error_totals.items() 
                 if val == max_total and val > 0
             ]
-            model_row["maxTotalFields"] = max_cols
+            error_row["maxTotalFields"] = max_cols
         else:
-            model_row["maxTotalFields"] = []
+            error_row["maxTotalFields"] = []
 
-        hierarchical_data.append(model_row)
+        hierarchical_data.append(error_row)
 
-        # Group by error_code within this model (level 2)
-        code_grouped = model_group.groupby("error_code")
+        # Create Model child rows under this error code (level 3)
+        for _, row in error_group.iterrows():
+            model_row = {"hierarchy": f"  └─ {row['Model']}", "isGroup": False}
 
-        for error_code, code_group in code_grouped:
-            # Create Error Code middle row (level 2) with subtotals
-            code_row = {"hierarchy": f"  📂 {error_code}", "isGroup": True}
-
-            # Add aggregated station values for error code
-            code_totals = {}
+            # Add individual station values for this model with this error
+            station_values = {}
             for col in station_cols:
-                total_val = code_group[col].sum()
-                code_row[col] = total_val
-                code_totals[col] = total_val
+                model_row[col] = row[col]
+                station_values[col] = row[col]
 
-            # Find highest station total for error code (red highlighting)
-            if code_totals:
-                max_total = max(code_totals.values())
+            # Find highest station value for this model (yellow highlighting)
+            if station_values:
+                max_val = max(station_values.values())
                 max_cols = [
-                    col for col, val in code_totals.items() 
-                    if val == max_total and val > 0
+                    col for col, val in station_values.items() 
+                    if val == max_val and val > 0
                 ]
-                code_row["maxTotalFields"] = max_cols
+                model_row["maxValueFields"] = max_cols
             else:
-                code_row["maxTotalFields"] = []
+                model_row["maxValueFields"] = []
 
-            hierarchical_data.append(code_row)
-
-            # Create Error Message child rows (level 3)
-            for _, row in code_group.iterrows():
-                message_row = {"hierarchy": f"    └─ {row['error_message']}", "isGroup": False, "isMessage": True}
-
-                # Leave station values blank for message rows (since they're 1:1 with error codes)
-                # This avoids redundant numbers and keeps the display clean
-                for col in station_cols:
-                    message_row[col] = ""  # Blank instead of duplicate numbers
-
-                # No highlighting for message rows since they don't show values
-                message_row["maxValueFields"] = []
-
-                hierarchical_data.append(message_row)
+            hierarchical_data.append(model_row)
 
     return hierarchical_data
 
@@ -446,7 +429,7 @@ def create_column_definitions(data: List[Dict[str, Any]], analysis_type: str = "
 
     # Dynamic header name based on analysis type
     if analysis_type == "error":
-        header_name = "Model → Error Code → Error Message"
+        header_name = "Error Code → Model"
     else:
         header_name = "Test Case → Model"
 
@@ -459,7 +442,7 @@ def create_column_definitions(data: List[Dict[str, Any]], analysis_type: str = "
                 "minWidth": 350,  # Slightly wider for 3-level hierarchy
                 "pinned": "left",  # Pin to left side
                 "cellStyle": {
-                    "function": "params.data.isGroup ? {'fontWeight': 'bold', 'backgroundColor': '#495057', 'color': '#ffffff', 'textAlign': 'left', 'paddingLeft': '10px'} : params.data.isMessage ? {'paddingLeft': '10px', 'color': '#6c757d', 'textAlign': 'left', 'backgroundColor': '#f8f9fa', 'fontStyle': 'italic'} : {'paddingLeft': '10px', 'color': '#6c757d', 'textAlign': 'left'}"
+                    "function": "params.data.isGroup ? {'fontWeight': 'bold', 'backgroundColor': '#495057', 'color': '#ffffff', 'textAlign': 'left', 'paddingLeft': '10px'} : {'paddingLeft': '10px', 'color': '#6c757d', 'textAlign': 'left'}"
                 },
             }
         )
@@ -480,7 +463,7 @@ def create_column_definitions(data: List[Dict[str, Any]], analysis_type: str = "
                     "max-value-highlight": f"params.data.maxField === '{col}' && !params.data.isGroup && params.value > 0",
                 },
                 "cellStyle": {
-                    "function": "params.data.isGroup ? {'textAlign': 'center', 'fontWeight': 'bold', 'backgroundColor': '#e9ecef'} : params.data.isMessage ? {'textAlign': 'center', 'backgroundColor': '#f8f9fa', 'color': '#6c757d', 'fontStyle': 'italic'} : {'textAlign': 'center'}"
+                    "function": "params.data.isGroup ? {'textAlign': 'center', 'fontWeight': 'bold', 'backgroundColor': '#e9ecef'} : {'textAlign': 'center'}"
                 },
             }
         )

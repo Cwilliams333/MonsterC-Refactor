@@ -459,11 +459,11 @@ def create_excel_style_error_pivot(
         filtered_df["error_message"] = filtered_df["error_message"].fillna("(blank)").astype(str)
         filtered_df["Model"] = filtered_df["Model"].fillna("(unknown)").astype(str)
 
-        # Step 4: Create pivot table with 3-level hierarchical rows
-        # Use Operator as the count value since it's always present and avoids grouping issues
+        # Step 4: Create pivot table with correct hierarchy: error_code → Model
+        # This creates unique error codes with models nested underneath
         pivot_result = pd.pivot_table(
             filtered_df,
-            index=["Model", "error_code", "error_message"],  # 3-level hierarchy
+            index=["error_code", "error_message", "Model"],  # Correct hierarchy: Error Code → Model
             columns=["Station ID"],  # Columns like Excel
             values="Operator",  # Count by Operator field (avoids self-grouping issues)
             aggfunc="count",  # Count occurrences
