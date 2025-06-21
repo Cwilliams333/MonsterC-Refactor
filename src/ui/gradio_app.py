@@ -41,15 +41,15 @@ from services.repeated_failures_service import (
 from services.wifi_error_service import (
     analyze_wifi_errors
 )
+from services.imei_extractor_service import (
+    process_data
+)
 
 # Import legacy functions directly (temporary during migration)
 from legacy_app import (
     
     # Data loading and processing
     load_and_update,
-    
-    # IMEI extraction
-    process_data,
     
     # Data mappings (will be moved to common.mappings)
     test_to_result_fail_map,
