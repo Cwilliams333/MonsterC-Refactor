@@ -219,6 +219,27 @@ app.layout = html.Div(
                                 ),
                             ]
                         ),
+                        # Light gray row explanation (for message rows)
+                        html.Div(
+                            [
+                                html.Div(
+                                    style={
+                                        "width": "20px",
+                                        "height": "20px",
+                                        "backgroundColor": "#f8f9fa",
+                                        "display": "inline-block",
+                                        "marginRight": "8px",
+                                        "verticalAlign": "middle",
+                                        "border": "1px solid #dee2e6",
+                                    }
+                                ),
+                                html.Span(
+                                    "Error message rows (blank values, descriptive only)",
+                                    style={"verticalAlign": "middle", "fontStyle": "italic"},
+                                ),
+                            ],
+                            style={"marginBottom": "8px"},
+                        ),
                     ],
                     style={
                         "textAlign": "left",
@@ -393,24 +414,15 @@ def transform_error_pivot_to_tree_data(pivot_df: pd.DataFrame) -> List[Dict[str,
 
             # Create Error Message child rows (level 3)
             for _, row in code_group.iterrows():
-                message_row = {"hierarchy": f"    └─ {row['error_message']}", "isGroup": False}
+                message_row = {"hierarchy": f"    └─ {row['error_message']}", "isGroup": False, "isMessage": True}
 
-                # Add individual station values
-                station_values = {}
+                # Leave station values blank for message rows (since they're 1:1 with error codes)
+                # This avoids redundant numbers and keeps the display clean
                 for col in station_cols:
-                    message_row[col] = row[col]
-                    station_values[col] = row[col]
+                    message_row[col] = ""  # Blank instead of duplicate numbers
 
-                # Find highest station value for this message (yellow highlighting)
-                if station_values:
-                    max_val = max(station_values.values())
-                    max_cols = [
-                        col for col, val in station_values.items() 
-                        if val == max_val and val > 0
-                    ]
-                    message_row["maxValueFields"] = max_cols
-                else:
-                    message_row["maxValueFields"] = []
+                # No highlighting for message rows since they don't show values
+                message_row["maxValueFields"] = []
 
                 hierarchical_data.append(message_row)
 
@@ -447,7 +459,7 @@ def create_column_definitions(data: List[Dict[str, Any]], analysis_type: str = "
                 "minWidth": 350,  # Slightly wider for 3-level hierarchy
                 "pinned": "left",  # Pin to left side
                 "cellStyle": {
-                    "function": "params.data.isGroup ? {'fontWeight': 'bold', 'backgroundColor': '#495057', 'color': '#ffffff', 'textAlign': 'left', 'paddingLeft': '10px'} : {'paddingLeft': '10px', 'color': '#6c757d', 'textAlign': 'left'}"
+                    "function": "params.data.isGroup ? {'fontWeight': 'bold', 'backgroundColor': '#495057', 'color': '#ffffff', 'textAlign': 'left', 'paddingLeft': '10px'} : params.data.isMessage ? {'paddingLeft': '10px', 'color': '#6c757d', 'textAlign': 'left', 'backgroundColor': '#f8f9fa', 'fontStyle': 'italic'} : {'paddingLeft': '10px', 'color': '#6c757d', 'textAlign': 'left'}"
                 },
             }
         )
@@ -468,7 +480,7 @@ def create_column_definitions(data: List[Dict[str, Any]], analysis_type: str = "
                     "max-value-highlight": f"params.data.maxField === '{col}' && !params.data.isGroup && params.value > 0",
                 },
                 "cellStyle": {
-                    "function": "params.data.isGroup ? {'textAlign': 'center', 'fontWeight': 'bold', 'backgroundColor': '#e9ecef'} : {'textAlign': 'center'}"
+                    "function": "params.data.isGroup ? {'textAlign': 'center', 'fontWeight': 'bold', 'backgroundColor': '#e9ecef'} : params.data.isMessage ? {'textAlign': 'center', 'backgroundColor': '#f8f9fa', 'color': '#6c757d', 'fontStyle': 'italic'} : {'textAlign': 'center'}"
                 },
             }
         )
