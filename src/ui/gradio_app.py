@@ -45,6 +45,7 @@ from services.pivot_service import (
     apply_failure_highlighting,
     apply_filters,
     create_excel_style_failure_pivot,
+    create_excel_style_error_pivot,
     create_pivot_table,
     find_top_failing_stations,
     generate_pivot_table_filtered,
@@ -413,15 +414,27 @@ with gr.Blocks(
         with gr.TabItem("🚨 Interactive Pivot Analysis"):
             gr.Markdown(
                 """
-            ## Excel-Style Hierarchical Pivot Table
+            ## Excel-Style Hierarchical Pivot Analysis
 
-            This feature provides **true Excel-style pivot tables** with:
-            - 📋 **Expandable test case groups** (just like Excel)
-            - 🔍 **Advanced sorting and filtering** that respects hierarchy
-            - 📊 **Interactive data exploration** with collapsible groups
+            This feature provides **two main analysis workflows** that replicate Excel pivot functionality:
+
+            ### 🚨 Catch High Failures
+            - **Hierarchy:** Test Case → Model (2-level)
+            - **Purpose:** Identify systemic failure patterns
+            - **Data:** result_FAIL field analysis
+
+            ### 🔍 Generate High Error Rates  
+            - **Hierarchy:** Model → Error Code → Error Message (3-level)
+            - **Purpose:** Deep-dive error code analysis
+            - **Data:** error_code and error_message field analysis
+
+            ### ✨ Both Include:
+            - 📋 **Expandable groups** with visual hierarchy (📁 📂 └─)
+            - 🎨 **Smart color coding** (RED for highest per group, YELLOW for highest per item)
+            - 🔍 **Interactive exploration** with collapsible groups
             - ⚡ **High performance** with large datasets
 
-            **How to use:** Click the button below to generate an interactive pivot table that opens in a new window.
+            **How to use:** Choose your analysis type and click the corresponding button below.
             """
             )
 
@@ -434,11 +447,18 @@ with gr.Blocks(
                 )
 
             with gr.Row():
-                generate_interactive_pivot_button = gr.Button(
-                    "🚨 Generate Interactive Excel-Style Pivot",
-                    variant="primary",
-                    size="lg",
-                )
+                with gr.Column(scale=1):
+                    generate_interactive_pivot_button = gr.Button(
+                        "🚨 Catch High Failures",
+                        variant="primary",
+                        size="lg",
+                    )
+                with gr.Column(scale=1):
+                    generate_error_analysis_button = gr.Button(
+                        "🔍 Generate High Error Rates",
+                        variant="secondary",
+                        size="lg",
+                    )
 
             with gr.Row():
                 interactive_pivot_status = gr.Markdown(
@@ -892,6 +912,110 @@ with gr.Blocks(
             logger.error(f"Error generating interactive pivot: {e}")
             return f"❌ **Error:** {str(e)}", ""
 
+    @capture_exceptions(
+        user_message="Interactive error analysis generation failed",
+        return_value=("❌ **Error:** Failed to generate interactive error analysis", ""),
+    )
+    def generate_error_analysis_wrapped(df, operator_filter):
+        """Generate interactive Excel-style error analysis table using Dash AG Grid."""
+        global dash_process
+
+        logger.info("Generating interactive Excel-style error analysis table")
+
+        # Check if dataframe is loaded
+        if df is None or df.empty:
+            logger.warning("No data loaded for interactive error analysis")
+            return "⚠️ **Error:** No data loaded. Please upload a CSV file first.", ""
+
+        # Check if required error columns exist
+        if "error_code" not in df.columns or "error_message" not in df.columns:
+            logger.warning("Required error columns not found")
+            return "⚠️ **Error:** Required columns 'error_code' and 'error_message' not found in data.", ""
+
+        try:
+            # Stop any previously running Dash app
+            if dash_process and dash_process.poll() is None:
+                logger.info("Stopping previous Dash process")
+                dash_process.terminate()
+                time.sleep(1)  # Give it time to stop
+
+            # Create the Excel-style error analysis pivot data
+            pivot_result = create_excel_style_error_pivot(df, operator_filter)
+
+            if pivot_result.empty:
+                logger.warning("Generated error analysis table is empty")
+                return (
+                    "⚠️ **Warning:** No error data found with the current filter settings.",
+                    "",
+                )
+
+            logger.info(f"Generated error analysis data with shape: {pivot_result.shape}")
+
+            # Save the pivot data to a temporary file
+            temp_dir = tempfile.gettempdir()
+            data_file = os.path.join(temp_dir, "monsterc_error_data.json")
+
+            # Convert to JSON format for Dash app
+            pivot_json = pivot_result.to_dict("records")
+            with open(data_file, "w") as f:
+                json.dump(pivot_json, f)
+
+            logger.info(f"Saved error analysis data to: {data_file}")
+
+            # Launch the Dash app with the data file
+            dash_script = os.path.join(
+                os.path.dirname(__file__), "..", "dash_pivot_app.py"
+            )
+            dash_process = subprocess.Popen(
+                ["python", dash_script, data_file], cwd=os.path.dirname(dash_script)
+            )
+
+            # Give the server time to start
+            time.sleep(3)
+
+            # Check if the process started successfully
+            if dash_process.poll() is not None:
+                logger.error("Dash process failed to start")
+                return "❌ **Error:** Failed to start interactive error analysis server.", ""
+
+            # Create the iframe HTML
+            iframe_html = f"""
+            <div style="width: 100%; height: 800px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
+                <iframe
+                    src="http://127.0.0.1:8051"
+                    width="100%"
+                    height="800px"
+                    frameborder="0"
+                    style="border: none;">
+                </iframe>
+            </div>
+            <p style="text-align: center; margin-top: 10px; color: #666; font-size: 14px;">
+                💡 If the error analysis table doesn't load, <a href="http://127.0.0.1:8051" target="_blank">click here to open in a new tab</a>
+            </p>
+            """
+
+            status_message = f"""
+            ✅ **Success!** Interactive error analysis table generated successfully
+
+            📊 **Data Summary:**
+            - **Rows:** {pivot_result.shape[0]} error combinations (Model → Error Code → Error Message)
+            - **Columns:** {pivot_result.shape[1]} stations/fields
+            - **Filter Applied:** {operator_filter if operator_filter != "All" else "None (showing all operators)"}
+
+            🎯 **3-Level Hierarchy Features:**
+            - 📁 Model groups (top level)
+            - 📂 Error Code subgroups (middle level)  
+            - └─ Error Message details (bottom level)
+            - RED highlighting for highest error counts per group
+            - YELLOW highlighting for highest counts per error message
+            """
+
+            return status_message, iframe_html
+
+        except Exception as e:
+            logger.error(f"Error generating interactive error analysis: {e}")
+            return f"❌ **Error:** {str(e)}", ""
+
     @capture_exceptions(user_message="Data processing failed", return_value=None)
     def process_data_wrapped(
         df, source, station_id, model_input, result_fail, flexible_search
@@ -1037,6 +1161,12 @@ with gr.Blocks(
 
     generate_interactive_pivot_button.click(
         generate_interactive_pivot_wrapped,
+        inputs=[df, interactive_operator_filter],
+        outputs=[interactive_pivot_status, interactive_pivot_iframe],
+    )
+
+    generate_error_analysis_button.click(
+        generate_error_analysis_wrapped,
         inputs=[df, interactive_operator_filter],
         outputs=[interactive_pivot_status, interactive_pivot_iframe],
     )

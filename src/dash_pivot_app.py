@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 import dash
 import dash_ag_grid as dag
 import pandas as pd
-from dash import dcc, html
+from dash import Input, Output, callback, dcc, html
 
 # Add src directory to Python path for imports
 project_root = Path(__file__).parent.parent
@@ -82,8 +82,10 @@ app.layout = html.Div(
                     },
                 ),
                 html.P(
-                    ("Interactive hierarchical pivot table with expandable "
-                     "test case groups"),
+                    (
+                        "Interactive hierarchical pivot table with expandable "
+                        "test case groups"
+                    ),
                     style={
                         "textAlign": "center",
                         "color": "#7f8c8d",
@@ -130,8 +132,10 @@ app.layout = html.Div(
         html.Div(
             [
                 html.P(
-                    ("💡 Tips: Hierarchy preserved - sorting/filtering "
-                     "disabled to maintain structure."),
+                    (
+                        "💡 Tips: Hierarchy preserved - sorting/filtering "
+                        "disabled to maintain structure."
+                    ),
                     style={
                         "textAlign": "center",
                         "color": "#95a5a6",
@@ -314,7 +318,106 @@ def transform_pivot_to_tree_data(pivot_df: pd.DataFrame) -> List[Dict[str, Any]]
     return hierarchical_data
 
 
-def create_column_definitions(data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def transform_error_pivot_to_tree_data(pivot_df: pd.DataFrame) -> List[Dict[str, Any]]:
+    """
+    Transform error analysis pivot (Model → Error Code → Error Message) into hierarchical display.
+    
+    Args:
+        pivot_df: DataFrame with columns [Model, error_code, error_message, ...station_cols]
+    
+    Returns:
+        List of dictionaries with 3-level visual hierarchy formatting
+    """
+    if pivot_df.empty:
+        return []
+
+    hierarchical_data = []
+    station_cols = [
+        col for col in pivot_df.columns 
+        if col not in ["Model", "error_code", "error_message"]
+    ]
+
+    # Group by Model (top level)
+    model_grouped = pivot_df.groupby("Model")
+
+    for model, model_group in model_grouped:
+        # Create Model parent row (level 1) with aggregated totals
+        model_row = {"hierarchy": f"📁 {model}", "isGroup": True}
+
+        # Add aggregated station values for model
+        model_totals = {}
+        for col in station_cols:
+            total_val = model_group[col].sum()
+            model_row[col] = total_val
+            model_totals[col] = total_val
+
+        # Find highest station total for model (red highlighting)
+        if model_totals:
+            max_total = max(model_totals.values())
+            max_cols = [
+                col for col, val in model_totals.items() 
+                if val == max_total and val > 0
+            ]
+            model_row["maxTotalFields"] = max_cols
+        else:
+            model_row["maxTotalFields"] = []
+
+        hierarchical_data.append(model_row)
+
+        # Group by error_code within this model (level 2)
+        code_grouped = model_group.groupby("error_code")
+
+        for error_code, code_group in code_grouped:
+            # Create Error Code middle row (level 2) with subtotals
+            code_row = {"hierarchy": f"  📂 {error_code}", "isGroup": True}
+
+            # Add aggregated station values for error code
+            code_totals = {}
+            for col in station_cols:
+                total_val = code_group[col].sum()
+                code_row[col] = total_val
+                code_totals[col] = total_val
+
+            # Find highest station total for error code (red highlighting)
+            if code_totals:
+                max_total = max(code_totals.values())
+                max_cols = [
+                    col for col, val in code_totals.items() 
+                    if val == max_total and val > 0
+                ]
+                code_row["maxTotalFields"] = max_cols
+            else:
+                code_row["maxTotalFields"] = []
+
+            hierarchical_data.append(code_row)
+
+            # Create Error Message child rows (level 3)
+            for _, row in code_group.iterrows():
+                message_row = {"hierarchy": f"    └─ {row['error_message']}", "isGroup": False}
+
+                # Add individual station values
+                station_values = {}
+                for col in station_cols:
+                    message_row[col] = row[col]
+                    station_values[col] = row[col]
+
+                # Find highest station value for this message (yellow highlighting)
+                if station_values:
+                    max_val = max(station_values.values())
+                    max_cols = [
+                        col for col, val in station_values.items() 
+                        if val == max_val and val > 0
+                    ]
+                    message_row["maxValueFields"] = max_cols
+                else:
+                    message_row["maxValueFields"] = []
+
+                hierarchical_data.append(message_row)
+
+    return hierarchical_data
+
+
+def create_column_definitions(data: List[Dict[str, Any]], analysis_type: str = "failure") -> List[Dict[str, Any]]:
     """Create AG Grid column definitions for community version hierarchy."""
     if not data:
         return []
@@ -329,13 +432,19 @@ def create_column_definitions(data: List[Dict[str, Any]]) -> List[Dict[str, Any]
 
     column_defs = []
 
+    # Dynamic header name based on analysis type
+    if analysis_type == "error":
+        header_name = "Model → Error Code → Error Message"
+    else:
+        header_name = "Test Case → Model"
+
     # Always put hierarchy column first (pinned left)
     if "hierarchy" in display_columns:
         column_defs.append(
             {
                 "field": "hierarchy",
-                "headerName": "Test Case → Model",
-                "minWidth": 300,
+                "headerName": header_name,
+                "minWidth": 350,  # Slightly wider for 3-level hierarchy
                 "pinned": "left",  # Pin to left side
                 "cellStyle": {
                     "function": "params.data.isGroup ? {'fontWeight': 'bold', 'backgroundColor': '#495057', 'color': '#ffffff', 'textAlign': 'left', 'paddingLeft': '10px'} : {'paddingLeft': '10px', 'color': '#6c757d', 'textAlign': 'left'}"
@@ -390,11 +499,15 @@ def update_grid(stored_data):
             logger.warning("Received empty pivot data")
             return [], []
 
-        # Transform to tree data format
-        tree_data = transform_pivot_to_tree_data(pivot_df)
-
-        # Create column definitions
-        column_defs = create_column_definitions(tree_data)
+        # Detect analysis type based on columns
+        if "error_code" in pivot_df.columns and "error_message" in pivot_df.columns:
+            # 3-level error analysis
+            tree_data = transform_error_pivot_to_tree_data(pivot_df)
+            column_defs = create_column_definitions(tree_data, analysis_type="error")
+        else:
+            # 2-level failure analysis
+            tree_data = transform_pivot_to_tree_data(pivot_df)
+            column_defs = create_column_definitions(tree_data, analysis_type="failure")
 
         logger.info(
             f"Updated grid with {len(tree_data)} rows and {len(column_defs)} columns"

@@ -400,3 +400,84 @@ def apply_failure_highlighting(
     except Exception as e:
         logger.error(f"Error applying failure highlighting: {str(e)}")
         return df
+
+
+@capture_exceptions(user_message="Failed to create Excel-style error analysis pivot table")
+def create_excel_style_error_pivot(
+    df: pd.DataFrame, operator_filter: Union[str, List[str], None] = None
+) -> pd.DataFrame:
+    """
+    Create Excel-style error analysis pivot table with 3-level hierarchy.
+    
+    - Filters: Operator (applied before pivot)
+    - Columns: Station ID
+    - Rows: Model, error_code, error_message (3-level hierarchical)
+    - Values: Count of errors
+
+    Args:
+        df: Input DataFrame with columns: Operator, Station ID, Model, error_code, error_message
+        operator_filter: Optional filter for Operator column (single string or list)
+
+    Returns:
+        Pivot table DataFrame with 3-level hierarchical index and Station ID columns
+    """
+    try:
+        # Step 1: Apply operator filter (like Excel filter)
+        filtered_df = df.copy()
+
+        # Handle operator filter - can be string, list, or None
+        if operator_filter:
+            # Convert to list if string
+            if isinstance(operator_filter, str):
+                filter_list = [operator_filter]
+            else:
+                filter_list = operator_filter
+
+            # Only filter if not "All" or ["All"]
+            if filter_list != ["All"] and "All" not in filter_list:
+                filtered_df = filtered_df[filtered_df["Operator"].isin(filter_list)]
+
+        # Log filter status
+        logger.info(
+            f"Operator filter: {operator_filter}, DataFrame shape after filter: {filtered_df.shape}"
+        )
+
+        # Step 2: Remove rows with missing critical error fields
+        filtered_df = filtered_df[
+            filtered_df["error_code"].notna() | filtered_df["error_message"].notna()
+        ]
+
+        logger.info(
+            f"DataFrame shape after removing empty error fields: {filtered_df.shape}"
+        )
+
+        # Step 3: Fill missing values for better display
+        filtered_df = filtered_df.copy()
+        filtered_df["error_code"] = filtered_df["error_code"].fillna("(blank)")
+        filtered_df["error_message"] = filtered_df["error_message"].fillna("(blank)")
+
+        # Step 4: Create pivot table with 3-level hierarchical rows
+        # Note: We count by error_code since error_code/error_message are 1:1 mapped
+        pivot_result = pd.pivot_table(
+            filtered_df,
+            index=["Model", "error_code", "error_message"],  # 3-level hierarchy
+            columns=["Station ID"],  # Columns like Excel
+            values="error_code",  # Count by error_code (since it's 1:1 with message)
+            aggfunc="count",  # Count occurrences of error codes
+            fill_value=0,  # Fill missing with 0
+        )
+
+        # Step 5: Clean up column names and reset index for Gradio compatibility
+        pivot_result.columns.name = None  # Remove 'Station ID' header
+        pivot_result = (
+            pivot_result.reset_index()
+        )  # Make hierarchical index into columns
+
+        logger.info(
+            f"Created Excel-style error analysis pivot table with shape: {pivot_result.shape}"
+        )
+        return pivot_result
+
+    except Exception as e:
+        logger.error(f"Error creating Excel-style error analysis pivot table: {str(e)}")
+        return pd.DataFrame({"Error": [str(e)]})

@@ -39,9 +39,7 @@ def detect_encoding(file_path: Union[str, Path]) -> str:
 
             # Fall back to utf-8 if confidence is too low
             if confidence < 0.7:
-                logger.warning(
-                    "Low confidence in encoding detection, using utf-8"
-                )
+                logger.warning("Low confidence in encoding detection, using utf-8")
                 return "utf-8"
 
             return encoding
