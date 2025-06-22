@@ -923,7 +923,7 @@ def create_column_definitions(
         return []
 
     # Get all possible columns from the data
-    all_columns = set()
+    all_columns: set[str] = set()
     for row in data:
         all_columns.update(row.keys())
 

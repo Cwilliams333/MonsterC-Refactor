@@ -100,7 +100,7 @@ def transform_pivot_to_tabulator_tree_hybrid(
     station_cols = sort_stations_by_total_errors(original_pivot_df)
     logger.info(f"🔥 Station columns from ORIGINAL pivot: {station_cols[:5]}")
 
-    tabulator_data = []
+    tabulator_data: List[Dict[str, Any]] = []
 
     # CREATE TOTAL ROW using ORIGINAL pivot totals
     total_row = {
@@ -158,7 +158,7 @@ def transform_pivot_to_tabulator_tree_hybrid(
         group = grouped.get_group(test_case_string)
 
         # Create parent row for concatenated test case
-        parent_row = {
+        parent_row: Dict[str, Any] = {
             "hierarchy": f"📁 {test_case_string}",
             "isGroup": True,
             "_children": [],
@@ -229,7 +229,7 @@ def transform_pivot_to_tabulator_tree(pivot_df: pd.DataFrame) -> List[Dict[str, 
     station_cols = sort_stations_by_total_errors(pivot_df)
     logger.info(f"🔥 Station columns sorted by failures: {station_cols[:5]}")
 
-    tabulator_data = []
+    tabulator_data: List[Dict[str, Any]] = []
 
     # CREATE TOTAL ROW (always expanded) - USE ORIGINAL PIVOT TOTALS
     total_row = {
@@ -281,7 +281,7 @@ def transform_pivot_to_tabulator_tree(pivot_df: pd.DataFrame) -> List[Dict[str, 
         group = grouped.get_group(test_case_string)
 
         # Create parent row (test case group) with aggregated totals
-        parent_row = {
+        parent_row: Dict[str, Any] = {
             "hierarchy": f"📁 {test_case_string}",
             "isGroup": True,
             "_children": [],  # This is where Tabulator expects child rows!

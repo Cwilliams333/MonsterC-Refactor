@@ -94,7 +94,7 @@ def create_plot(df: pd.DataFrame) -> go.Figure:
 @capture_exceptions(user_message="Failed to analyze repeated failures")
 def analyze_repeated_failures(
     df: pd.DataFrame, min_failures: int = 4
-) -> Tuple[str, go.Figure, gr.Dataframe, gr.Dropdown]:
+) -> Tuple[str, Any, Any, Any]:
     """
     Analyzes repeated failures in test data and returns summary, chart, and interactive components.
 
@@ -245,7 +245,7 @@ def update_summary_chart_and_data(
 
     # Check for no data
     if repeated_failures_df is None or len(repeated_failures_df) == 0:
-        return "No data available to sort/filter", None, None
+        return "No data available to sort/filter", None, gr.Dataframe()
 
     # Make a copy of the dataframe so we don't modify the original
     df = repeated_failures_df.copy()

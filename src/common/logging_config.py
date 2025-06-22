@@ -74,7 +74,7 @@ class StructuredFormatter(logging.Formatter):
                 "stack_info",
             ]:
                 log_entry["extra"] = log_entry.get("extra", {})
-                log_entry["extra"][key] = value
+                log_entry["extra"][key] = value  # type: ignore[index]
 
         return json.dumps(log_entry, default=str)
 
@@ -196,7 +196,7 @@ class LoggingConfig:
             file_handler.setLevel(self.log_level)
 
             if self.structured_file_logs:
-                file_formatter = StructuredFormatter()
+                file_formatter: logging.Formatter = StructuredFormatter()
             else:
                 file_formatter = logging.Formatter(
                     "%(asctime)s - %(name)s - %(levelname)s - %(module)s.%(funcName)s:%(lineno)d - %(message)s"
@@ -258,7 +258,10 @@ class ServiceError(Exception):
     """Custom exception for service-level errors."""
 
     def __init__(
-        self, message: str, user_message: str = None, details: Dict[str, Any] = None
+        self,
+        message: str,
+        user_message: str | None = None,
+        details: Dict[str, Any] | None = None,
     ):
         """
         Initialize service error.
@@ -276,7 +279,7 @@ class ServiceError(Exception):
 
 
 def capture_exceptions(
-    user_message: str = None,
+    user_message: str | None = None,
     log_level: int = logging.ERROR,
     reraise: bool = False,
     return_value: Any = None,
@@ -369,7 +372,7 @@ def capture_exceptions(
 
                 return return_value
 
-        return wrapper
+        return wrapper  # type: ignore[return-value]
 
     return decorator
 
@@ -378,7 +381,7 @@ def capture_exceptions(
 def log_service_call(
     service_name: str,
     operation: str,
-    logger_name: str = None,
+    logger_name: str | None = None,
     log_level: int = logging.INFO,
     **context,
 ):
@@ -490,13 +493,13 @@ def log_performance(threshold_seconds: float = 1.0) -> Callable[[F], F]:
                 )
                 raise
 
-        return wrapper
+        return wrapper  # type: ignore[return-value]
 
     return decorator
 
 
 # Convenience functions for common logging patterns
-def log_dataframe_info(df: "pd.DataFrame", name: str, logger_name: str = None):
+def log_dataframe_info(df: "pd.DataFrame", name: str, logger_name: str | None = None):
     """Log basic information about a pandas DataFrame."""
     info_logger = get_logger(logger_name or "data")
     info_logger.info(
@@ -511,7 +514,9 @@ def log_dataframe_info(df: "pd.DataFrame", name: str, logger_name: str = None):
     )
 
 
-def log_user_action(action: str, details: Dict[str, Any] = None, user_id: str = None):
+def log_user_action(
+    action: str, details: Dict[str, Any] | None = None, user_id: str | None = None
+):
     """Log user actions for analytics and debugging."""
     user_logger = get_logger("user_actions")
     user_logger.info(

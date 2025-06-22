@@ -3,7 +3,7 @@ Filtering Service - Extracted from legacy_app.py
 Handles all data filtering operations and UI visibility updates.
 """
 
-from typing import List, Tuple
+from typing import Any, List, Tuple
 
 import gradio as gr
 import pandas as pd
@@ -122,7 +122,7 @@ def analyze_overall_status(df: pd.DataFrame) -> pd.Series:
 )
 def update_filter_visibility(
     filter_type: str,
-) -> Tuple[gr.update, gr.update, gr.update]:
+) -> Tuple[Any, Any, Any]:
     """
     Updates the visibility of filter dropdowns based on the selected filter type.
 
@@ -306,7 +306,9 @@ def filter_data(
     title_suffix = (
         f"for Operator {operator}"
         if operator != "All"
-        else f"for Station {station_id}" if station_id != "All" else "(All Data)"
+        else f"for Station {station_id}"
+        if station_id != "All"
+        else "(All Data)"
     )
 
     models_chart = create_summary_chart(

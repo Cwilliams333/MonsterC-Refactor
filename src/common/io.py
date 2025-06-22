@@ -32,7 +32,7 @@ def detect_encoding(file_path: Union[str, Path]) -> str:
         with open(file_path, "rb") as file:
             raw_data = file.read(10000)  # Read first 10KB for detection
             result = chardet.detect(raw_data)
-            encoding = result.get("encoding", "utf-8")
+            encoding = result.get("encoding") or "utf-8"
             confidence = result.get("confidence", 0)
 
             logger.info(f"Detected encoding: {encoding} (confidence: {confidence:.2f})")
@@ -121,9 +121,9 @@ def load_data(
                         for col in peek_df.columns
                         if "date" in col.lower() or "time" in col.lower()
                     ]
-                    date_columns = potential_date_cols if potential_date_cols else False
+                    date_columns = potential_date_cols if potential_date_cols else None
                 except Exception:
-                    date_columns = False
+                    date_columns = None
 
             # Read CSV with comprehensive settings
             try:
@@ -172,7 +172,7 @@ def load_data(
                 raise
             continue
 
-    raise UnicodeDecodeError(
+    raise ValueError(
         f"Could not decode file with any of the attempted encodings: {encodings_to_try}"
     )
 
@@ -354,7 +354,7 @@ def validate_csv_structure(
     Returns:
         Dict with validation results including 'valid' boolean and 'issues' list
     """
-    validation_result = {
+    validation_result: Dict[str, Any] = {
         "valid": True,
         "issues": [],
         "warnings": [],
