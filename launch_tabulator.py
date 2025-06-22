@@ -7,7 +7,6 @@ This runs the new Tabulator frontend alongside your existing app.
 
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 # Add src directory to Python path
@@ -17,6 +16,7 @@ sys.path.insert(0, str(src_path))
 
 
 def main():
+    """Launch the Tabulator.js frontend server to support collapsible groups not available in Gradio."""
     print("🚀 Launching MonsterC with Tabulator.js Collapsible Groups!")
     print("=" * 60)
 

@@ -17,7 +17,6 @@ import dash
 import dash_ag_grid as dag
 import pandas as pd
 from dash import (
-    ClientsideFunction,
     Input,
     Output,
     State,
@@ -99,8 +98,8 @@ app.layout = html.Div(
                 ),
                 html.P(
                     (
-                        "Interactive hierarchical pivot table with expandable "
-                        "test case groups"
+                        "Interactive hierarchical pivot table with "
+                        "expandable test case groups"
                     ),
                     style={
                         "textAlign": "center",
@@ -441,12 +440,12 @@ def transform_pivot_to_tree_data(pivot_df: pd.DataFrame) -> List[Dict[str, Any]]
     )
 
     # Calculate model failure totals for smart sorting
-    model_totals = calculate_model_failure_totals(pivot_df)
+    calculate_model_failure_totals(pivot_df)
 
     # Group by test case to create hierarchy
     grouped = pivot_df.groupby("result_FAIL")
 
-    # IMPROVED sorting: Sort test cases by their TOTAL failures (not max model)
+    # Sort test cases by their TOTAL failures (not max model)
     test_case_totals = {}
     for test_case, group in grouped:
         # Calculate total failures for this test case across all stations
@@ -491,7 +490,8 @@ def transform_pivot_to_tree_data(pivot_df: pd.DataFrame) -> List[Dict[str, Any]]
 
         hierarchical_data.append(group_row)
 
-        # Create child rows for each model, sorted by model failure count WITHIN THIS TEST CASE (descending)
+        # Create child rows for each model, sorted by model failure count
+        # WITHIN THIS TEST CASE (descending)
         group_sorted = group.copy()
         # Calculate failures within this test case for each model
         group_sorted["test_case_model_failures"] = group_sorted[station_cols].sum(
@@ -550,10 +550,12 @@ def debug_pivot_calculations(pivot_df: pd.DataFrame) -> None:
     # Get station columns
     excluded_cols = {"error_code", "error_message", "Model", "result_FAIL"}
     station_cols = [col for col in pivot_df.columns if col not in excluded_cols]
-    logger.info(f"Station columns ({len(station_cols)}): {station_cols[:10]}...")
+    logger.info(
+        f"Station columns ({len(station_cols)}): {station_cols[:10]}..."
+    )
 
     # Debug model calculations
-    logger.info("\n=== MODEL CALCULATIONS ===")
+    logger.info("\n=== MODEL CALCULATIONS ==")
     model_stats = {}
     for _, row in pivot_df.iterrows():
         model = row["Model"]
@@ -572,12 +574,12 @@ def debug_pivot_calculations(pivot_df: pd.DataFrame) -> None:
 
     # Show top 5 models
     sorted_models = sorted(model_stats.items(), key=lambda x: x[1], reverse=True)
-    logger.info(f"\nTop 5 models by failure count:")
+    logger.info("\nTop 5 models by failure count:")
     for i, (model, count) in enumerate(sorted_models[:5]):
         logger.info(f"{i+1}. {model}: {count} failures")
 
     # Debug test case calculations
-    logger.info("\n=== TEST CASE CALCULATIONS ===")
+    logger.info("\n=== TEST CASE CALCULATIONS ====")
     test_case_stats = {}
     for _, row in pivot_df.iterrows():
         test_case = row.get("result_FAIL", "Unknown")
@@ -597,25 +599,25 @@ def debug_pivot_calculations(pivot_df: pd.DataFrame) -> None:
     sorted_test_cases = sorted(
         test_case_stats.items(), key=lambda x: x[1], reverse=True
     )
-    logger.info(f"\nTop 5 test cases by failure count:")
+    logger.info("\nTop 5 test cases by failure count:")
     for i, (test_case, count) in enumerate(sorted_test_cases[:5]):
         logger.info(f"{i+1}. {test_case}: {count} failures")
 
     # Debug station calculations
-    logger.info("\n=== STATION CALCULATIONS ===")
+    logger.info("\n=== STATION CALCULATIONS ====")
     station_stats = {}
     for col in station_cols:
         station_stats[col] = pivot_df[col].sum()
 
     # Show top 5 stations
     sorted_stations = sorted(station_stats.items(), key=lambda x: x[1], reverse=True)
-    logger.info(f"\nTop 5 stations by failure count:")
+    logger.info("\nTop 5 stations by failure count:")
     for i, (station, count) in enumerate(sorted_stations[:5]):
         logger.info(f"{i+1}. {station}: {count} failures")
 
         # Show breakdown for radi056
         if station == "radi056":
-            logger.info(f"radi056 breakdown:")
+            logger.info("radi056 breakdown:")
             for _, row in pivot_df.iterrows():
                 if row[station] > 0:
                     logger.info(
@@ -625,13 +627,16 @@ def debug_pivot_calculations(pivot_df: pd.DataFrame) -> None:
 
 def calculate_pivot_summary_stats(pivot_df: pd.DataFrame) -> Dict[str, Any]:
     """
-    Calculate key summary statistics showing the highest INDIVIDUAL cell values visible in the pivot table.
+    Calculate key summary statistics.
+    
+    Shows the highest INDIVIDUAL cell values visible in the pivot table.
 
     Args:
         pivot_df: DataFrame with failure analysis data
 
     Returns:
-        Dictionary with highest individual cell values that match what's visible in the pivot table
+        Dictionary with highest individual cell values that match 
+        what's visible in the pivot table
     """
     try:
         if pivot_df.empty:
@@ -662,7 +667,6 @@ def calculate_pivot_summary_stats(pivot_df: pd.DataFrame) -> Dict[str, Any]:
 
         # Find the highest individual cell value for each dimension
         max_cell_value = 0
-        max_cell_info = {"model": "", "test_case": "", "station": "", "value": 0}
 
         # Find the overall highest cell value
         for _, row in pivot_df.iterrows():
@@ -670,12 +674,6 @@ def calculate_pivot_summary_stats(pivot_df: pd.DataFrame) -> Dict[str, Any]:
                 cell_value = row[station]
                 if cell_value > max_cell_value:
                     max_cell_value = cell_value
-                    max_cell_info = {
-                        "model": row["Model"],
-                        "test_case": row.get("result_FAIL", "Unknown"),
-                        "station": station,
-                        "value": cell_value,
-                    }
 
         # 1. Highest Model: Find the model+test_case combination with highest individual cell value
         model_max = {"name": "", "count": 0, "test_case": "", "station": ""}
@@ -721,7 +719,13 @@ def calculate_pivot_summary_stats(pivot_df: pd.DataFrame) -> Dict[str, Any]:
                     }
 
         logger.info(
-            f"Max individual cell values - Model: {model_max['name']} ({model_max['count']} in {model_max['test_case']} at {model_max['station']}), Test: {test_case_max['name']} ({test_case_max['count']} with {test_case_max['model']} at {test_case_max['station']}), Station: {station_max['name']} ({station_max['count']} for {station_max['test_case']} with {station_max['model']})"
+            f"Max cell values - Model: {model_max['name']} "
+            f"({model_max['count']} in {model_max['test_case']} at "
+            f"{model_max['station']}), Test: {test_case_max['name']} "
+            f"({test_case_max['count']} with {test_case_max['model']} at "
+            f"{test_case_max['station']}), Station: {station_max['name']} "
+            f"({station_max['count']} for {station_max['test_case']} "
+            f"with {station_max['model']})"
         )
 
         return {
@@ -818,11 +822,12 @@ def sort_stations_by_total_errors(pivot_df: pd.DataFrame) -> List[str]:
     for col in station_cols:
         station_totals[col] = pivot_df[col].sum()
 
-    # Sort by total errors (highest first) - this puts the action up front
+    # Sort by total errors (highest first) - puts the action up front
     sorted_stations = sorted(station_totals.items(), key=lambda x: x[1], reverse=True)
 
     logger.info(
-        f"Station totals (sorted): {[(station, total) for station, total in sorted_stations[:10]]}"
+        f"Station totals (sorted): "
+        f"{[(station, total) for station, total in sorted_stations[:10]]}"
     )
 
     return [station for station, total in sorted_stations]

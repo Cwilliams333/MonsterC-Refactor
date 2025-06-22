@@ -19,11 +19,10 @@ from flask import Flask, jsonify, render_template_string
 project_root = Path(__file__).parent.parent
 src_path = project_root / "src"
 sys.path.insert(0, str(src_path))
-sys.path.insert(0, str(project_root))  # Also add project root for relative imports
+sys.path.insert(0, str(project_root))  # Also add project root
 
-from common.logging_config import get_logger
-from dash_pivot_app import sort_stations_by_total_errors
-from services.pivot_service import create_excel_style_failure_pivot
+from common.logging_config import get_logger  # noqa: E402
+from dash_pivot_app import sort_stations_by_total_errors  # noqa: E402
 
 # Configure logging
 logger = get_logger(__name__)
@@ -60,7 +59,7 @@ def create_concatenated_failure_pivot() -> pd.DataFrame:
         filtered_df = automation_df[automation_df["result_FAIL"].notna()]
         filtered_df = filtered_df[filtered_df["result_FAIL"].str.strip() != ""]
 
-        logger.info(f"🔗 Preserving concatenated test cases (no split/explode)")
+        logger.info("🔗 Preserving concatenated test cases (no split/explode)")
         logger.info(f"DataFrame shape: {filtered_df.shape}")
 
         # Create pivot table with CONCATENATED result_FAIL values preserved
@@ -93,9 +92,7 @@ def create_concatenated_failure_pivot() -> pd.DataFrame:
 def transform_pivot_to_tabulator_tree_hybrid(
     original_pivot_df: pd.DataFrame, concatenated_pivot_df: pd.DataFrame
 ) -> List[Dict[str, Any]]:
-    """
-    HYBRID: Use original pivot for correct totals (radi154=97) but concatenated pivot for test case structure.
-    """
+    """HYBRID: Use original pivot for correct totals but concatenated for structure."""
     if original_pivot_df.empty:
         return []
 
@@ -124,7 +121,8 @@ def transform_pivot_to_tabulator_tree_hybrid(
     total_row["Grand_Total"] = grand_total_sum
 
     logger.info(
-        f"🎯 CORRECT TOTALS - radi154: {total_row.get('radi154', 'N/A')}, radi152: {total_row.get('radi152', 'N/A')}"
+        f"🎯 CORRECT TOTALS - radi154: {total_row.get('radi154', 'N/A')}, "
+        f"radi152: {total_row.get('radi152', 'N/A')}"
     )
     logger.info(f"🎯 Heat map max: {max_value} at {max_station}")
     logger.info(f"🎯 Grand Total: {grand_total_sum}")
@@ -148,7 +146,8 @@ def transform_pivot_to_tabulator_tree_hybrid(
         test_case_totals.items(), key=lambda x: x[1], reverse=True
     )
     logger.info(
-        f"📊 Concatenated test case groups: {[tc for tc, _ in sorted_test_cases[:5]]}"
+        f"📊 Concatenated test case groups: "
+        f"{[tc for tc, _ in sorted_test_cases[:5]]}"
     )
 
     for test_case_string, test_case_total in sorted_test_cases:
@@ -247,7 +246,8 @@ def transform_pivot_to_tabulator_tree(pivot_df: pd.DataFrame) -> List[Dict[str, 
 
     logger.info(f"🎯 CORRECT TOTALS - Max: {max_value} at {max_station}")
     logger.info(
-        f"🎯 Total row values: radi154={total_row.get('radi154', 'N/A')}, radi152={total_row.get('radi152', 'N/A')}"
+        f"🎯 Total row values: radi154={total_row.get('radi154', 'N/A')}, "
+        f"radi152={total_row.get('radi152', 'N/A')}"
     )
 
     # Mark the maximum value for heat map highlighting
@@ -269,7 +269,7 @@ def transform_pivot_to_tabulator_tree(pivot_df: pd.DataFrame) -> List[Dict[str, 
     sorted_test_cases = sorted(
         test_case_totals.items(), key=lambda x: x[1], reverse=True
     )
-    logger.info(f"📊 Test case groups by total failures:")
+    logger.info("📊 Test case groups by total failures:")
     for test_case, total in sorted_test_cases[:5]:
         logger.info(f"  - '{test_case}': {total} failures")
 
@@ -925,7 +925,10 @@ def get_pivot_data():
             return (
                 jsonify(
                     {
-                        "error": "No pivot data available. Please run 'Automation High Failures' first.",
+                        "error": (
+                            "No pivot data available. "
+                            "Please run 'Automation High Failures' first."
+                        ),
                         "data": [],
                     }
                 ),
@@ -942,20 +945,24 @@ def get_pivot_data():
         # Create CONCATENATED test case structure but use ORIGINAL totals
         concatenated_pivot = create_concatenated_failure_pivot()
         if concatenated_pivot is not None and not concatenated_pivot.empty:
-            logger.info(f"🔗 Creating hybrid: concatenated test cases + original totals")
+            logger.info(
+                "🔗 Creating hybrid: concatenated test cases + original totals"
+            )
 
             # Use concatenated data for test case structure, but original pivot for station totals
             tree_data = transform_pivot_to_tabulator_tree_hybrid(
                 pivot_df, concatenated_pivot
             )
         else:
-            logger.info(f"⚠️ Falling back to standard pivot data")
+            logger.info("⚠️ Falling back to standard pivot data")
             tree_data = transform_pivot_to_tabulator_tree(pivot_df)
 
-        # ALWAYS use original pivot data for column sorting (correct totals: radi154=97)
+        # ALWAYS use original pivot data for column sorting (correct totals)
         # Only use concatenated data for test case grouping structure
         station_cols = sort_stations_by_total_errors(pivot_df)
-        logger.info(f"🔥 Using ORIGINAL pivot for column sorting: {station_cols[:3]}")
+        logger.info(
+            f"🔥 Using ORIGINAL pivot for column sorting: {station_cols[:3]}"
+        )
         columns = create_tabulator_columns(station_cols)
 
         logger.info(f"🚀 Serving {len(tree_data)} rows to Tabulator")
