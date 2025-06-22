@@ -60,7 +60,7 @@ jobs:
       run: black --check --diff src/ tests/
 
     - name: Check import sorting with isort
-      run: isort --check-only --diff src/ tests/
+      run: isort --check-only --diff --profile black --multi-line=3 --trailing-comma --force-grid-wrap=0 --combine-as --line-width=88 src/ tests/
 
     - name: Lint with flake8
       run: flake8 src/ tests/
