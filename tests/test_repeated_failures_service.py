@@ -373,7 +373,7 @@ class TestUpdateSummaryChartAndData:
 
         assert summary == "No data available to sort/filter"
         assert fig is None
-        assert interactive_df is None
+        assert isinstance(interactive_df, gr.Dataframe)
 
 
 class TestUpdateSummary:
