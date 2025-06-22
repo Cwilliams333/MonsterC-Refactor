@@ -129,7 +129,9 @@ def test_clickable_functionality():
         row_type = (
             "TOTAL"
             if row.get("isTotal")
-            else "GROUP" if row.get("isGroup") else "MODEL"
+            else "GROUP"
+            if row.get("isGroup")
+            else "MODEL"
         )
         print(f"  {i+1}. [{row_type}] {hierarchy}")
 
@@ -156,7 +158,7 @@ def test_clickable_functionality():
     else:
         print(f"  ❌ {js_file} missing")
 
-    # All checks passed
+    # All checks passed - test passes if we reach here without assertion errors
     assert len(tree_data) > 0, "Tree data should be generated"
     assert len(group_rows) > 0, "Should have test case groups"
     assert len(model_rows) > 0, "Should have model rows"

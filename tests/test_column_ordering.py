@@ -123,7 +123,7 @@ def test_column_ordering():
 
             if first_station == max_station:
                 print("✅ COLUMN ORDERING: CORRECT (highest failures station is first)")
-                # All checks passed
+                # All checks passed - test passes if we reach here without assertion errors
                 assert (
                     first_station == max_station
                 ), f"Highest failure station {max_station} should be first column"

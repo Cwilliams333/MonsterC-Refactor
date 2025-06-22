@@ -130,7 +130,7 @@ def test_end_to_end_column_order():
                     f"3. Column order: {' → '.join([col['field'] for col in station_cols[:5]])}"
                 )
 
-                # All checks passed
+                # All checks passed - test passes if we reach here without assertion errors
                 assert (
                     first_field == max_field
                 ), f"Highest failure station {max_field} should be first column"
