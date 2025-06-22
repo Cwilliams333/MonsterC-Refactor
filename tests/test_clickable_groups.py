@@ -129,9 +129,7 @@ def test_clickable_functionality():
         row_type = (
             "TOTAL"
             if row.get("isTotal")
-            else "GROUP"
-            if row.get("isGroup")
-            else "MODEL"
+            else "GROUP" if row.get("isGroup") else "MODEL"
         )
         print(f"  {i+1}. [{row_type}] {hierarchy}")
 
