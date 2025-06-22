@@ -5,3 +5,8 @@ numpy
 plotly
 matplotlib
 seaborn
+chardet
+dash
+dash-ag-grid
+pytest
+pytest-cov

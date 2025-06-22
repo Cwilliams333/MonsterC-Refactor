@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 # Add src directory to Python path
-src_dir = Path(__file__).parent / "src"
+src_dir = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(src_dir))
 
 try:
@@ -37,11 +37,15 @@ try:
         print("✗ Gradio app creation failed")
         sys.exit(1)
 
-    # Test that we can import legacy functions
+    # Test that we can import legacy functions (optional - legacy app was retired)
     print("Testing legacy function imports...")
-    from legacy_app import filter_data, perform_analysis
+    try:
+        from legacy_app import filter_data, perform_analysis
 
-    print("✓ Legacy function imports successful")
+        print("✓ Legacy function imports successful")
+    except ImportError:
+        print("ℹ️  Legacy app not found (expected - it was retired)")
+        # This is fine - the legacy app has been fully replaced by services
 
     print("\n🎉 All tests passed! The new Gradio app is ready to use.")
     print("\nTo run the app:")
