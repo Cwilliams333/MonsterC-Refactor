@@ -28,7 +28,7 @@ def test_end_to_end_column_order():
     print("=" * 70)
 
     # Load test data
-    test_data_path = project_root / "test_data" / "feb7_feb10Pull.csv"
+    test_data_path = project_root / "tests" / "sample_test_data.csv"
     df = pd.read_csv(test_data_path)
     print(f"✅ Loaded {len(df)} total records")
 
