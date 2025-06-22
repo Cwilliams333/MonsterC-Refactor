@@ -6,8 +6,8 @@ This script tests the new modular UI to ensure it maintains 100% compatibility
 with the original while using the new architecture.
 """
 
-import sys
 import os
+import sys
 from pathlib import Path
 
 # Add src directory to Python path
@@ -17,17 +17,18 @@ sys.path.insert(0, str(src_dir))
 try:
     # Test imports
     print("Testing imports...")
-    from ui.gradio_app import demo, launch_app
     from common.io import load_data
     from common.logging_config import get_logger
+    from ui.gradio_app import demo, launch_app
+
     print("✓ All imports successful")
-    
+
     # Test logger
     print("Testing logger...")
     logger = get_logger("test")
     logger.info("Logger test successful")
     print("✓ Logger working")
-    
+
     # Test Gradio app creation
     print("Testing Gradio app creation...")
     if demo is not None:
@@ -35,18 +36,19 @@ try:
     else:
         print("✗ Gradio app creation failed")
         sys.exit(1)
-    
+
     # Test that we can import legacy functions
     print("Testing legacy function imports...")
-    from legacy_app import perform_analysis, filter_data
+    from legacy_app import filter_data, perform_analysis
+
     print("✓ Legacy function imports successful")
-    
+
     print("\n🎉 All tests passed! The new Gradio app is ready to use.")
     print("\nTo run the app:")
-    print("  python -c \"from src.ui.gradio_app import launch_app; launch_app()\"")
+    print('  python -c "from src.ui.gradio_app import launch_app; launch_app()"')
     print("\nOr:")
     print("  cd src && python ui/gradio_app.py")
-    
+
 except ImportError as e:
     print(f"✗ Import error: {e}")
     print("Make sure all dependencies are installed and the file structure is correct.")

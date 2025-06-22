@@ -44,8 +44,8 @@ from services.pivot_service import (
     analyze_top_test_cases,
     apply_failure_highlighting,
     apply_filters,
-    create_excel_style_failure_pivot,
     create_excel_style_error_pivot,
+    create_excel_style_failure_pivot,
     create_pivot_table,
     find_top_failing_stations,
     generate_pivot_table_filtered,
@@ -348,7 +348,7 @@ with gr.Blocks(
             with gr.Row():
                 generate_pivot_button = gr.Button("Generate Pivot Table")
                 catch_failures_button = gr.Button(
-                    "🚨 Catch High Failures", variant="primary"
+                    "🤖 Automation High Failures", variant="primary"
                 )
 
             with gr.Row():
@@ -412,32 +412,7 @@ with gr.Blocks(
                     )
 
         with gr.TabItem("🚨 Interactive Pivot Analysis"):
-            gr.Markdown(
-                """
-            ## Excel-Style Hierarchical Pivot Analysis
-
-            This feature provides **two main analysis workflows** that replicate Excel pivot functionality:
-
-            ### 🚨 Catch High Failures
-            - **Hierarchy:** Test Case → Model (2-level)
-            - **Purpose:** Identify systemic failure patterns
-            - **Data:** result_FAIL field analysis
-
-            ### 🔍 Generate High Error Rates  
-            - **Hierarchy:** Model → Error Code → Error Message (3-level)
-            - **Purpose:** Deep-dive error code analysis
-            - **Data:** error_code and error_message field analysis
-
-            ### ✨ Both Include:
-            - 📋 **Expandable groups** with visual hierarchy (📁 📂 └─)
-            - 🎨 **Smart color coding** (RED for highest per group, YELLOW for highest per item)
-            - 🔍 **Interactive exploration** with collapsible groups
-            - ⚡ **High performance** with large datasets
-
-            **How to use:** Choose your analysis type and click the corresponding button below.
-            """
-            )
-
+            # Main action buttons at the TOP for immediate access
             with gr.Row():
                 interactive_operator_filter = gr.Dropdown(
                     label="Filter by Operator (Optional)",
@@ -449,7 +424,7 @@ with gr.Blocks(
             with gr.Row():
                 with gr.Column(scale=1):
                     generate_interactive_pivot_button = gr.Button(
-                        "🚨 Catch High Failures",
+                        "🤖 Automation High Failures",
                         variant="primary",
                         size="lg",
                     )
@@ -466,9 +441,89 @@ with gr.Blocks(
                     elem_classes=["markdown-body"],
                 )
 
+            # Prominent view selector buttons (hidden until data is generated)
+            with gr.Row(visible=False) as view_selector_row:
+                gr.HTML(
+                    """
+                <div style="text-align: center; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; margin: 10px 0;">
+                    <h3 style="color: white; margin-bottom: 15px; font-size: 18px;">🎯 Choose Your View</h3>
+                    <div style="display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;">
+                        <a href="http://127.0.0.1:8051" target="_blank" style="text-decoration: none;">
+                            <div class="view-button classic-view">
+                                <div style="background: #28a745; color: white; padding: 15px 25px; border-radius: 10px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3); transition: all 0.3s ease; border: none; cursor: pointer; min-width: 200px;">
+                                    📊 Classic AG Grid View
+                                    <div style="font-size: 12px; margin-top: 5px; opacity: 0.9;">Traditional Excel-style</div>
+                                </div>
+                            </div>
+                        </a>
+                        <a href="http://127.0.0.1:5001" target="_blank" style="text-decoration: none;">
+                            <div class="view-button tabulator-view">
+                                <div style="background: linear-gradient(45deg, #ff6b6b, #ffa500); color: white; padding: 15px 25px; border-radius: 10px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4); transition: all 0.3s ease; border: none; cursor: pointer; min-width: 200px; animation: pulse-glow 2s infinite;">
+                                    ✨ NEW: Collapsible Groups! ✨
+                                    <div style="font-size: 12px; margin-top: 5px; opacity: 0.9;">Native tree view + heat maps</div>
+                                </div>
+                            </div>
+                        </a>
+                    </div>
+                </div>
+
+                <style>
+                    @keyframes pulse-glow {
+                        0% { box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4); }
+                        50% { box-shadow: 0 6px 25px rgba(255, 107, 107, 0.8), 0 0 20px rgba(255, 165, 0, 0.6); }
+                        100% { box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4); }
+                    }
+
+                    .view-button:hover > div {
+                        transform: translateY(-3px) scale(1.05);
+                        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3) !important;
+                    }
+
+                    .classic-view:hover > div {
+                        background: #218838 !important;
+                    }
+
+                    .tabulator-view:hover > div {
+                        background: linear-gradient(45deg, #ff5252, #ff9800) !important;
+                    }
+                </style>
+                """
+                )
+
             with gr.Row():
                 interactive_pivot_iframe = gr.HTML(
                     value="", label="Interactive Pivot Table"
+                )
+
+            # Informational content in collapsible accordion at bottom
+            with gr.Accordion("📚 Analysis Guide & Details", open=False):
+                gr.Markdown(
+                    """
+                ## Excel-Style Hierarchical Pivot Analysis
+
+                This feature provides **two main analysis workflows** that replicate Excel pivot functionality:
+
+                ### 🤖 Automation High Failures
+                - **Hierarchy:** Test Case → Model (2-level)
+                - **Purpose:** Identify automation line failure patterns (4 operators only)
+                - **Data:** FAILURE + ERROR with result_FAIL logic for automation operators
+                - **Scope:** STN251_RED, STN252_RED, STN351_GRN, STN352_GRN (24 stations)
+                - **✨ NEW:** Native collapsible groups with Tabulator.js ([Launch Tabulator Interface](http://127.0.0.1:5001))
+
+                ### 🔍 Generate High Error Rates
+                - **Hierarchy:** Model → Error Code → Error Message (3-level)
+                - **Purpose:** Deep-dive error code analysis
+                - **Data:** error_code and error_message field analysis
+
+                ### ✨ Both Include:
+                - 📋 **Expandable groups** with visual hierarchy (📁 📂 └─)
+                - 🎨 **Smart color coding** (RED for highest per group, ORANGE per test case, YELLOW for top 3 models)
+                - 📊 **Grand Total column** (sum of all station failures)
+                - 🔍 **Interactive exploration** with collapsible groups
+                - ⚡ **High performance** with large datasets
+
+                **How to use:** Click the automation button above, then optionally explore the enhanced Tabulator interface!
+                """
                 )
 
         with gr.TabItem("Advanced Filtering"):
@@ -790,8 +845,8 @@ with gr.Blocks(
 
     @capture_exceptions(user_message="High failures analysis failed", return_value=None)
     def catch_high_failures_wrapped(df, operator_filter):
-        """Wrapper for Excel-style failure pivot with highlighting."""
-        logger.info("Generating Excel-style failure pivot with highlighting")
+        """Wrapper for automation-only high failure detection with ERROR + result_FAIL logic."""
+        logger.info("Generating automation-only high failure analysis")
 
         # Check if dataframe is loaded
         if df is None or df.empty:
@@ -802,8 +857,40 @@ with gr.Blocks(
             f"Input DataFrame shape: {df.shape}, Operator filter: {operator_filter}"
         )
 
-        # Create the Excel-style pivot
-        pivot_result = create_excel_style_failure_pivot(df, operator_filter)
+        # Define automation operators based on business logic analysis
+        automation_operators = [
+            "STN251_RED(id:10089)",  # STN1_RED
+            "STN252_RED(id:10090)",  # STN2_RED
+            "STN351_GRN(id:10380)",  # STN1_GREEN
+            "STN352_GRN(id:10381)",  # STN2_GREEN
+        ]
+
+        # Filter for automation operators only
+        automation_df = df[df["Operator"].isin(automation_operators)]
+        logger.info(
+            f"Filtered to automation operators only: {automation_df.shape[0]} records"
+        )
+
+        if automation_df.empty:
+            return pd.DataFrame({"Message": ["No automation operator data found"]})
+
+        # Apply business logic: Count FAILURE OR (ERROR with result_FAIL populated)
+        failure_conditions = (automation_df["Overall status"] == "FAILURE") | (
+            (automation_df["Overall status"] == "ERROR")
+            & (automation_df["result_FAIL"].notna())
+            & (automation_df["result_FAIL"].str.strip() != "")
+        )
+
+        automation_failures = automation_df[failure_conditions]
+        logger.info(
+            f"Found {len(automation_failures)} automation failures using FAILURE + ERROR with result_FAIL logic"
+        )
+
+        if automation_failures.empty:
+            return pd.DataFrame({"Message": ["No automation failures found"]})
+
+        # Create Excel-style pivot focused on automation failures only
+        pivot_result = create_excel_style_failure_pivot(automation_failures, None)
 
         # Apply conditional formatting for high failure highlighting
         if not pivot_result.empty and "Error" not in pivot_result.columns:
@@ -817,18 +904,26 @@ with gr.Blocks(
 
     @capture_exceptions(
         user_message="Interactive pivot generation failed",
-        return_value=("❌ **Error:** Failed to generate interactive pivot table", ""),
+        return_value=(
+            "❌ **Error:** Failed to generate interactive pivot table",
+            "",
+            gr.Row(visible=False),
+        ),
     )
     def generate_interactive_pivot_wrapped(df, operator_filter):
-        """Generate interactive Excel-style pivot table using Dash AG Grid."""
+        """Generate interactive automation-only high failure analysis using Dash AG Grid."""
         global dash_process
 
-        logger.info("Generating interactive Excel-style pivot table")
+        logger.info("Generating interactive automation-only failure analysis")
 
         # Check if dataframe is loaded
         if df is None or df.empty:
             logger.warning("No data loaded for interactive pivot")
-            return "⚠️ **Error:** No data loaded. Please upload a CSV file first.", ""
+            return (
+                "⚠️ **Error:** No data loaded. Please upload a CSV file first.",
+                "",
+                gr.Row(visible=False),
+            )
 
         try:
             # Stop any previously running Dash app
@@ -837,14 +932,70 @@ with gr.Blocks(
                 dash_process.terminate()
                 time.sleep(1)  # Give it time to stop
 
-            # Create the Excel-style pivot data
-            pivot_result = create_excel_style_failure_pivot(df, operator_filter)
+            # Define automation operators based on business logic analysis
+            automation_operators = [
+                "STN251_RED(id:10089)",  # STN1_RED
+                "STN252_RED(id:10090)",  # STN2_RED
+                "STN351_GRN(id:10380)",  # STN1_GREEN
+                "STN352_GRN(id:10381)",  # STN2_GREEN
+            ]
+
+            # Filter for automation operators only
+            automation_df = df[df["Operator"].isin(automation_operators)]
+            logger.info(
+                f"Filtered to automation operators only: {automation_df.shape[0]} records"
+            )
+
+            if automation_df.empty:
+                return (
+                    "⚠️ **Error:** No automation operator data found.",
+                    "",
+                    gr.Row(visible=False),
+                )
+
+            # Apply business logic: Count FAILURE OR (ERROR with result_FAIL populated)
+            # This preserves the existing beautiful pivot logic but with correct automation failure criteria
+            failure_conditions = (automation_df["Overall status"] == "FAILURE") | (
+                (automation_df["Overall status"] == "ERROR")
+                & (automation_df["result_FAIL"].notna())
+                & (automation_df["result_FAIL"].str.strip() != "")
+            )
+
+            automation_failures = automation_df[failure_conditions]
+            logger.info(
+                f"Found {len(automation_failures)} automation failures using FAILURE + ERROR with result_FAIL logic"
+            )
+
+            if automation_failures.empty:
+                return (
+                    "⚠️ **Warning:** No automation failures found with the current criteria.",
+                    "",
+                    gr.Row(visible=False),
+                )
+
+            # Save raw automation failure data for Tabulator (preserves concatenated test cases)
+            temp_dir = tempfile.gettempdir()
+            automation_data_file = os.path.join(
+                temp_dir, "monsterc_automation_data.json"
+            )
+            automation_json = automation_failures.to_dict("records")
+            with open(automation_data_file, "w") as f:
+                json.dump(automation_json, f)
+            logger.info(f"📊 Saved raw automation data to: {automation_data_file}")
+            logger.info(
+                f"🔗 Raw data contains concatenated test cases like: {automation_failures['result_FAIL'].unique()[:3]}"
+            )
+
+            # Create the Excel-style pivot data focused on automation failures only
+            # This preserves the beautiful hierarchy: Test Cases (📁) -> Models (└─) with zen zeros and color coding
+            pivot_result = create_excel_style_failure_pivot(automation_failures, None)
 
             if pivot_result.empty:
                 logger.warning("Generated pivot table is empty")
                 return (
                     "⚠️ **Warning:** No failure data found with the current filter settings.",
                     "",
+                    gr.Row(visible=False),
                 )
 
             logger.info(f"Generated pivot data with shape: {pivot_result.shape}")
@@ -874,7 +1025,11 @@ with gr.Blocks(
             # Check if the process started successfully
             if dash_process.poll() is not None:
                 logger.error("Dash process failed to start")
-                return "❌ **Error:** Failed to start interactive pivot server.", ""
+                return (
+                    "❌ **Error:** Failed to start interactive pivot server.",
+                    "",
+                    gr.Row(visible=False),
+                )
 
             # Create the iframe HTML
             iframe_html = f"""
@@ -888,7 +1043,8 @@ with gr.Blocks(
                 </iframe>
             </div>
             <p style="text-align: center; margin-top: 10px; color: #666; font-size: 14px;">
-                💡 If the pivot table doesn't load, <a href="http://127.0.0.1:8051" target="_blank">click here to open in a new tab</a>
+                💡 Options: <a href="http://127.0.0.1:8051" target="_blank">AG Grid View</a> |
+                <a href="http://127.0.0.1:5001" target="_blank" style="color: #28a745; font-weight: bold;">✨ NEW: Collapsible Groups! ✨</a>
             </p>
             """
 
@@ -906,15 +1062,19 @@ with gr.Blocks(
             - Hover over cells for detailed information
             """
 
-            return status_message, iframe_html
+            return status_message, iframe_html, gr.Row(visible=True)
 
         except Exception as e:
             logger.error(f"Error generating interactive pivot: {e}")
-            return f"❌ **Error:** {str(e)}", ""
+            return f"❌ **Error:** {str(e)}", "", gr.Row(visible=False)
 
     @capture_exceptions(
         user_message="Interactive error analysis generation failed",
-        return_value=("❌ **Error:** Failed to generate interactive error analysis", ""),
+        return_value=(
+            "❌ **Error:** Failed to generate interactive error analysis",
+            "",
+            gr.Row(visible=False),
+        ),
     )
     def generate_error_analysis_wrapped(df, operator_filter):
         """Generate interactive Excel-style error analysis table using Dash AG Grid."""
@@ -925,12 +1085,20 @@ with gr.Blocks(
         # Check if dataframe is loaded
         if df is None or df.empty:
             logger.warning("No data loaded for interactive error analysis")
-            return "⚠️ **Error:** No data loaded. Please upload a CSV file first.", ""
+            return (
+                "⚠️ **Error:** No data loaded. Please upload a CSV file first.",
+                "",
+                gr.Row(visible=False),
+            )
 
         # Check if required error columns exist
         if "error_code" not in df.columns or "error_message" not in df.columns:
             logger.warning("Required error columns not found")
-            return "⚠️ **Error:** Required columns 'error_code' and 'error_message' not found in data.", ""
+            return (
+                "⚠️ **Error:** Required columns 'error_code' and 'error_message' not found in data.",
+                "",
+                gr.Row(visible=False),
+            )
 
         try:
             # Stop any previously running Dash app
@@ -947,9 +1115,12 @@ with gr.Blocks(
                 return (
                     "⚠️ **Warning:** No error data found with the current filter settings.",
                     "",
+                    gr.Row(visible=False),
                 )
 
-            logger.info(f"Generated error analysis data with shape: {pivot_result.shape}")
+            logger.info(
+                f"Generated error analysis data with shape: {pivot_result.shape}"
+            )
 
             # Save the pivot data to a temporary file
             temp_dir = tempfile.gettempdir()
@@ -976,7 +1147,11 @@ with gr.Blocks(
             # Check if the process started successfully
             if dash_process.poll() is not None:
                 logger.error("Dash process failed to start")
-                return "❌ **Error:** Failed to start interactive error analysis server.", ""
+                return (
+                    "❌ **Error:** Failed to start interactive error analysis server.",
+                    "",
+                    gr.Row(visible=False),
+                )
 
             # Create the iframe HTML
             iframe_html = f"""
@@ -1004,17 +1179,17 @@ with gr.Blocks(
 
             🎯 **3-Level Hierarchy Features:**
             - 📁 Model groups (top level)
-            - 📂 Error Code subgroups (middle level)  
+            - 📂 Error Code subgroups (middle level)
             - └─ Error Message details (bottom level)
             - RED highlighting for highest error counts per group
             - YELLOW highlighting for highest counts per error message
             """
 
-            return status_message, iframe_html
+            return status_message, iframe_html, gr.Row(visible=True)
 
         except Exception as e:
             logger.error(f"Error generating interactive error analysis: {e}")
-            return f"❌ **Error:** {str(e)}", ""
+            return f"❌ **Error:** {str(e)}", "", gr.Row(visible=False)
 
     @capture_exceptions(user_message="Data processing failed", return_value=None)
     def process_data_wrapped(
@@ -1162,13 +1337,13 @@ with gr.Blocks(
     generate_interactive_pivot_button.click(
         generate_interactive_pivot_wrapped,
         inputs=[df, interactive_operator_filter],
-        outputs=[interactive_pivot_status, interactive_pivot_iframe],
+        outputs=[interactive_pivot_status, interactive_pivot_iframe, view_selector_row],
     )
 
     generate_error_analysis_button.click(
         generate_error_analysis_wrapped,
         inputs=[df, interactive_operator_filter],
-        outputs=[interactive_pivot_status, interactive_pivot_iframe],
+        outputs=[interactive_pivot_status, interactive_pivot_iframe, view_selector_row],
     )
 
     process_button.click(
