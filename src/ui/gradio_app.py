@@ -978,7 +978,36 @@ with gr.Blocks(
             automation_data_file = os.path.join(
                 temp_dir, "monsterc_automation_data.json"
             )
-            automation_json = automation_failures.to_dict("records")
+            # Convert datetime columns to strings for JSON serialization
+            automation_failures_json = automation_failures.copy()
+            for col in automation_failures_json.columns:
+                # Check for datetime types and timestamp objects
+                col_dtype = str(automation_failures_json[col].dtype).lower()
+                if (
+                    "datetime" in col_dtype
+                    or "timestamp" in col_dtype
+                    or automation_failures_json[col].dtype.name
+                    in ["datetime64[ns]", "datetime64[ns, UTC]"]
+                ):
+                    automation_failures_json[col] = automation_failures_json[
+                        col
+                    ].astype(str)
+                # Also check for object columns that might contain Timestamp objects
+                elif automation_failures_json[col].dtype == "object":
+                    try:
+                        # Sample first non-null value to check if it's a Timestamp
+                        sample_val = (
+                            automation_failures_json[col].dropna().iloc[0]
+                            if not automation_failures_json[col].dropna().empty
+                            else None
+                        )
+                        if sample_val is not None and hasattr(sample_val, "timestamp"):
+                            automation_failures_json[col] = automation_failures_json[
+                                col
+                            ].astype(str)
+                    except (IndexError, AttributeError):
+                        pass  # Not a timestamp column
+            automation_json = automation_failures_json.to_dict("records")
             with open(automation_data_file, "w") as f:
                 json.dump(automation_json, f)
             logger.info(f"📊 Saved raw automation data to: {automation_data_file}")
@@ -1004,8 +1033,32 @@ with gr.Blocks(
             temp_dir = tempfile.gettempdir()
             data_file = os.path.join(temp_dir, "monsterc_pivot_data.json")
 
-            # Convert to JSON format for Dash app
-            pivot_json = pivot_result.to_dict("records")
+            # Convert to JSON format for Dash app (handle datetime columns)
+            pivot_result_json = pivot_result.copy()
+            for col in pivot_result_json.columns:
+                # Check for datetime types and timestamp objects
+                col_dtype = str(pivot_result_json[col].dtype).lower()
+                if (
+                    "datetime" in col_dtype
+                    or "timestamp" in col_dtype
+                    or pivot_result_json[col].dtype.name
+                    in ["datetime64[ns]", "datetime64[ns, UTC]"]
+                ):
+                    pivot_result_json[col] = pivot_result_json[col].astype(str)
+                # Also check for object columns that might contain Timestamp objects
+                elif pivot_result_json[col].dtype == "object":
+                    try:
+                        # Sample first non-null value to check if it's a Timestamp
+                        sample_val = (
+                            pivot_result_json[col].dropna().iloc[0]
+                            if not pivot_result_json[col].dropna().empty
+                            else None
+                        )
+                        if sample_val is not None and hasattr(sample_val, "timestamp"):
+                            pivot_result_json[col] = pivot_result_json[col].astype(str)
+                    except (IndexError, AttributeError):
+                        pass  # Not a timestamp column
+            pivot_json = pivot_result_json.to_dict("records")
             with open(data_file, "w") as f:
                 json.dump(pivot_json, f)
 
