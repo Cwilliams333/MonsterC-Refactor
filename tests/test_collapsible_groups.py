@@ -153,7 +153,10 @@ def test_collapsible_groups():
     print(f"✨ The 📁 icons will be CLICKABLE to expand/collapse groups!")
     print(f"✨ No more text-based hierarchy - real AG Grid row grouping!")
 
-    return True
+    # All checks passed
+    assert len(grouped_data) > 0, "Grouped data should be generated"
+    assert grid_options is not None, "Grid options should be configured"
+    assert column_defs is not None, "Column definitions should be created"
 
 
 if __name__ == "__main__":

@@ -76,6 +76,7 @@ def test_column_ordering():
             "maxTotalFields",
             "maxValueFields",
             "hierarchy",
+            "Grand_Total",  # Exclude computed Grand Total column
         }
         station_data = {
             col: total_row[col]
@@ -122,19 +123,28 @@ def test_column_ordering():
 
             if first_station == max_station:
                 print("✅ COLUMN ORDERING: CORRECT (highest failures station is first)")
-                return True
+                # All checks passed
+                assert (
+                    first_station == max_station
+                ), f"Highest failure station {max_station} should be first column"
+                assert len(column_defs) > 0, "Column definitions should be created"
+                assert (
+                    len(hierarchical_data) > 0
+                ), "Hierarchical data should be generated"
             else:
                 print(
                     "❌ COLUMN ORDERING: INCORRECT (highest failures station is not first)"
                 )
                 print(f"Expected {max_station} to be first, but got {first_station}")
-                return False
+                assert (
+                    False
+                ), f"Expected {max_station} to be first column, but got {first_station}"
         else:
             print("❌ No station columns found in definitions")
-            return False
+            assert False, "No station columns found in definitions"
     else:
         print("❌ TOTAL FAILURES row not found")
-        return False
+        assert False, "TOTAL FAILURES row not found in hierarchical data"
 
 
 if __name__ == "__main__":

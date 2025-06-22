@@ -103,10 +103,11 @@ def test_end_to_end_column_order():
             first_field = station_cols[0]["field"]
             first_value = total_row.get(first_field, 0)
 
-            # Find the actual highest station
+            # Find the actual highest station (exclude Grand_Total)
             station_values = {
                 field: total_row.get(field, 0)
                 for field in [col["field"] for col in station_cols]
+                if field != "Grand_Total"  # Exclude computed Grand Total column
             }
             max_field = max(station_values.keys(), key=lambda k: station_values[k])
             max_value = station_values[max_field]
@@ -129,16 +130,25 @@ def test_end_to_end_column_order():
                     f"3. Column order: {' → '.join([col['field'] for col in station_cols[:5]])}"
                 )
 
-                return True
+                # All checks passed
+                assert (
+                    first_field == max_field
+                ), f"Highest failure station {max_field} should be first column"
+                assert len(column_defs) > 0, "Column definitions should be created"
+                assert (
+                    len(hierarchical_data) > 0
+                ), "Hierarchical data should be generated"
             else:
                 print("❌ FAILED: Wrong column order!")
-                return False
+                assert (
+                    False
+                ), f"Expected {max_field} to be first column, but got {first_field}"
         else:
             print("❌ No station columns found")
-            return False
+            assert False, "No station columns found"
     else:
         print("❌ TOTAL FAILURES row not found")
-        return False
+        assert False, "TOTAL FAILURES row not found in hierarchical data"
 
 
 if __name__ == "__main__":

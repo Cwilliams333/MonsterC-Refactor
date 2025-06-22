@@ -158,7 +158,10 @@ def test_clickable_functionality():
     else:
         print(f"  ❌ {js_file} missing")
 
-    return True
+    # All checks passed
+    assert len(tree_data) > 0, "Tree data should be generated"
+    assert len(group_rows) > 0, "Should have test case groups"
+    assert len(model_rows) > 0, "Should have model rows"
 
 
 if __name__ == "__main__":
