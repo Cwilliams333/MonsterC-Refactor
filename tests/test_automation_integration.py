@@ -216,7 +216,9 @@ def test_complete_automation_workflow():
     if total_failures > 100:  # Should have substantial failures
         checks.append("✅ Substantial failure data for analysis")
     else:
-        checks.append(f"⚠️  Limited failures ({total_failures}) - verify analysis value")
+        checks.append(
+            f"⚠️  Limited failures ({total_failures}) - verify analysis value"
+        )
 
     for check in checks:
         print(f"   {check}")

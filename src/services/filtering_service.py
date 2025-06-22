@@ -306,7 +306,9 @@ def filter_data(
     title_suffix = (
         f"for Operator {operator}"
         if operator != "All"
-        else f"for Station {station_id}" if station_id != "All" else "(All Data)"
+        else f"for Station {station_id}"
+        if station_id != "All"
+        else "(All Data)"
     )
 
     models_chart = create_summary_chart(

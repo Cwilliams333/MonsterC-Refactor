@@ -18,7 +18,9 @@ logger = get_logger(__name__)
 
 
 @capture_exceptions(user_message="Failed to analyze WiFi errors")
-def analyze_wifi_errors(file, error_threshold: int = 9) -> Tuple[
+def analyze_wifi_errors(
+    file, error_threshold: int = 9
+) -> Tuple[
     Optional[pd.DataFrame],
     Optional[go.Figure],
     Optional[pd.DataFrame],
