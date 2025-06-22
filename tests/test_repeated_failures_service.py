@@ -13,8 +13,14 @@ import pandas as pd
 import pytest
 
 from src.services.repeated_failures_service import (
-    analyze_repeated_failures, create_plot, create_summary, get_model_code,
-    handle_test_case_selection, update_summary, update_summary_chart_and_data)
+    analyze_repeated_failures,
+    create_plot,
+    create_summary,
+    get_model_code,
+    handle_test_case_selection,
+    update_summary,
+    update_summary_chart_and_data,
+)
 
 
 @pytest.fixture

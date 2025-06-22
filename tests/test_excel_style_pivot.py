@@ -6,8 +6,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.services.pivot_service import (apply_failure_highlighting,
-                                        create_excel_style_failure_pivot)
+from src.services.pivot_service import (
+    apply_failure_highlighting,
+    create_excel_style_failure_pivot,
+)
 
 
 class TestExcelStyleFailurePivot:

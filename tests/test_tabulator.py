@@ -18,8 +18,7 @@ sys.path.insert(0, str(src_path))
 sys.path.insert(0, str(project_root))  # Also add project root for relative imports
 
 from services.pivot_service import create_excel_style_failure_pivot
-from tabulator_app import (create_tabulator_columns,
-                           transform_pivot_to_tabulator_tree)
+from tabulator_app import create_tabulator_columns, transform_pivot_to_tabulator_tree
 
 
 def test_tabulator_transformation():

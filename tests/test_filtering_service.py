@@ -8,13 +8,16 @@ import pandas as pd
 import plotly.graph_objects as go
 import pytest
 
-from src.services.filtering_service import (analyze_overall_status,
-                                            analyze_top_errors_by_model,
-                                            apply_filter_and_sort, filter_data,
-                                            format_dataframe,
-                                            get_unique_values,
-                                            update_filter_dropdowns,
-                                            update_filter_visibility)
+from src.services.filtering_service import (
+    analyze_overall_status,
+    analyze_top_errors_by_model,
+    apply_filter_and_sort,
+    filter_data,
+    format_dataframe,
+    get_unique_values,
+    update_filter_dropdowns,
+    update_filter_visibility,
+)
 
 
 class TestFilteringService:

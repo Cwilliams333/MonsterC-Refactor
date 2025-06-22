@@ -10,10 +10,10 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from src.common.logging_config import capture_exceptions, get_logger
+
 # Import from our clean common modules
 from src.common.mappings import resolve_station
-from src.common.plotting import (create_overall_status_chart,
-                                 create_summary_chart)
+from src.common.plotting import create_overall_status_chart, create_summary_chart
 
 logger = get_logger(__name__)
 

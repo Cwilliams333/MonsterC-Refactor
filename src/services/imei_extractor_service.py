@@ -17,8 +17,7 @@ from typing import List, Tuple
 import pandas as pd
 
 from src.common.logging_config import capture_exceptions
-from src.common.mappings import (DEVICE_MAP, STATION_TO_MACHINE,
-                                 TEST_TO_RESULT_FAIL_MAP)
+from src.common.mappings import DEVICE_MAP, STATION_TO_MACHINE, TEST_TO_RESULT_FAIL_MAP
 
 logger = logging.getLogger(__name__)
 

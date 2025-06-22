@@ -2,9 +2,14 @@
 
 import pytest
 
-from src.common.mappings import (DEVICE_MAP, STATION_TO_MACHINE,
-                                 TEST_TO_RESULT_FAIL_MAP, get_device_code,
-                                 get_test_from_result_fail, resolve_station)
+from src.common.mappings import (
+    DEVICE_MAP,
+    STATION_TO_MACHINE,
+    TEST_TO_RESULT_FAIL_MAP,
+    get_device_code,
+    get_test_from_result_fail,
+    resolve_station,
+)
 
 
 class TestGetDeviceCode:

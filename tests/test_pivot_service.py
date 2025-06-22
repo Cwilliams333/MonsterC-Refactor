@@ -11,11 +11,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.services.pivot_service import (analyze_top_models,
-                                        analyze_top_test_cases, apply_filters,
-                                        create_pivot_table,
-                                        find_top_failing_stations,
-                                        generate_pivot_table_filtered)
+from src.services.pivot_service import (
+    analyze_top_models,
+    analyze_top_test_cases,
+    apply_filters,
+    create_pivot_table,
+    find_top_failing_stations,
+    generate_pivot_table_filtered,
+)
 
 
 @pytest.fixture

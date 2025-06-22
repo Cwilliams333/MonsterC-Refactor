@@ -16,8 +16,7 @@ project_root = Path(__file__).parent
 src_path = project_root / "src"
 sys.path.insert(0, str(src_path))
 
-from dash_pivot_app import (create_column_definitions,
-                            transform_pivot_to_tree_data)
+from dash_pivot_app import create_column_definitions, transform_pivot_to_tree_data
 from services.pivot_service import create_excel_style_failure_pivot
 
 

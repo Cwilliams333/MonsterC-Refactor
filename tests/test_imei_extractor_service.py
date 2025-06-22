@@ -11,8 +11,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.services.imei_extractor_service import (get_test_from_result_fail,
-                                                 process_data, resolve_station)
+from src.services.imei_extractor_service import (
+    get_test_from_result_fail,
+    process_data,
+    resolve_station,
+)
 
 
 @pytest.fixture

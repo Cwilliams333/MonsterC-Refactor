@@ -232,9 +232,12 @@ class TestAnalyzeWifiErrors:
 
             try:
                 # Test the function
-                styled_results, heatmap_fig, styled_pivot, trend_fig = (
-                    analyze_wifi_errors(file_obj, error_threshold=9)
-                )
+                (
+                    styled_results,
+                    heatmap_fig,
+                    styled_pivot,
+                    trend_fig,
+                ) = analyze_wifi_errors(file_obj, error_threshold=9)
 
                 # Check that we get results
                 assert styled_results is not None
@@ -264,9 +267,12 @@ class TestAnalyzeWifiErrors:
 
             try:
                 # Test with threshold of 15% - STN251_RED should be above this
-                styled_results, heatmap_fig, styled_pivot, trend_fig = (
-                    analyze_wifi_errors(file_obj, error_threshold=15)
-                )
+                (
+                    styled_results,
+                    heatmap_fig,
+                    styled_pivot,
+                    trend_fig,
+                ) = analyze_wifi_errors(file_obj, error_threshold=15)
 
                 # Should have results
                 assert styled_results is not None
@@ -305,9 +311,12 @@ class TestAnalyzeWifiErrors:
 
             try:
                 # Test with threshold of 3% - both operators should be above this
-                styled_results, heatmap_fig, styled_pivot, trend_fig = (
-                    analyze_wifi_errors(file_obj, error_threshold=3)
-                )
+                (
+                    styled_results,
+                    heatmap_fig,
+                    styled_pivot,
+                    trend_fig,
+                ) = analyze_wifi_errors(file_obj, error_threshold=3)
 
                 assert styled_results is not None
                 assert heatmap_fig is not None
@@ -332,9 +341,12 @@ class TestAnalyzeWifiErrors:
             file_obj = MockFile(tmp_file.name)
 
             try:
-                styled_results, heatmap_fig, styled_pivot, trend_fig = (
-                    analyze_wifi_errors(file_obj, error_threshold=9)
-                )
+                (
+                    styled_results,
+                    heatmap_fig,
+                    styled_pivot,
+                    trend_fig,
+                ) = analyze_wifi_errors(file_obj, error_threshold=9)
 
                 # Should have styled results
                 assert styled_results is not None
@@ -366,9 +378,12 @@ class TestAnalyzeWifiErrors:
             file_obj = MockFile(tmp_file.name)
 
             try:
-                styled_results, heatmap_fig, styled_pivot, trend_fig = (
-                    analyze_wifi_errors(file_obj, error_threshold=9)
-                )
+                (
+                    styled_results,
+                    heatmap_fig,
+                    styled_pivot,
+                    trend_fig,
+                ) = analyze_wifi_errors(file_obj, error_threshold=9)
 
                 # Function should handle empty data gracefully
                 # May return None for all results or empty styled results
@@ -403,9 +418,12 @@ class TestAnalyzeWifiErrors:
 
             try:
                 # Should handle malformed data gracefully and return None
-                styled_results, heatmap_fig, styled_pivot, trend_fig = (
-                    analyze_wifi_errors(file_obj, error_threshold=9)
-                )
+                (
+                    styled_results,
+                    heatmap_fig,
+                    styled_pivot,
+                    trend_fig,
+                ) = analyze_wifi_errors(file_obj, error_threshold=9)
 
                 # Function should return None for all values when data parsing fails
                 assert styled_results is None
@@ -437,9 +455,12 @@ class TestAnalyzeWifiErrors:
                 )
 
                 # Test with very high threshold (99%) - should not find high error operators
-                styled_results_high, heatmap_high, pivot_high, trend_high = (
-                    analyze_wifi_errors(file_obj, error_threshold=99)
-                )
+                (
+                    styled_results_high,
+                    heatmap_high,
+                    pivot_high,
+                    trend_high,
+                ) = analyze_wifi_errors(file_obj, error_threshold=99)
 
                 assert styled_results_low is not None
                 assert styled_results_high is not None
@@ -543,9 +564,12 @@ class TestWifiErrorServiceIntegration:
 
             try:
                 # Run the complete analysis
-                styled_results, heatmap_fig, styled_pivot, trend_fig = (
-                    analyze_wifi_errors(file_obj, error_threshold=10)
-                )
+                (
+                    styled_results,
+                    heatmap_fig,
+                    styled_pivot,
+                    trend_fig,
+                ) = analyze_wifi_errors(file_obj, error_threshold=10)
 
                 # Verify all components are generated
                 assert styled_results is not None
