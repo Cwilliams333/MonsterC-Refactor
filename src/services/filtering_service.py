@@ -3,7 +3,7 @@ Filtering Service - Extracted from legacy_app.py
 Handles all data filtering operations and UI visibility updates.
 """
 
-from typing import Any, Dict, List, Tuple, Union
+from typing import List, Tuple
 
 import gradio as gr
 import pandas as pd

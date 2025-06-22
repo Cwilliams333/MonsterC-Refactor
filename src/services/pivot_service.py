@@ -5,12 +5,10 @@ This module provides pivot table generation and analysis functionality,
 extracted from the legacy monolith following the Strangler Fig pattern.
 """
 
-from typing import Any, List, Optional, Tuple, Union
+from typing import List, Optional, Union
 
 import numpy as np
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 
 from src.common.logging_config import capture_exceptions, get_logger
 

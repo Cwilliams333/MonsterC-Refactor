@@ -12,13 +12,15 @@ import functools
 import json
 import logging
 import logging.handlers
-import os
 import sys
 import traceback
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, TypeVar, Union
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 # Type variable for decorated functions
 F = TypeVar("F", bound=Callable[..., Any])

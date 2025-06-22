@@ -6,7 +6,7 @@ analyzing test results, including color schemes, styling functions, and
 chart creation utilities.
 """
 
-from typing import Any, Dict, Optional, Union
+from typing import Dict, Optional, Union
 
 import pandas as pd
 import plotly.express as px

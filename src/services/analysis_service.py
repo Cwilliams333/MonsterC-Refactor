@@ -4,7 +4,7 @@ Handles main dashboard analysis and KPI generation.
 """
 
 from datetime import datetime
-from typing import Any, List, Optional, Tuple
+from typing import List, Tuple
 
 import pandas as pd
 import plotly.express as px

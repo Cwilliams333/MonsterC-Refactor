@@ -5,7 +5,7 @@ This module contains all the mapping dictionaries used throughout the applicatio
 for translating device codes, station IDs, and test results into human-readable names.
 """
 
-from typing import Any, Dict, List, Union
+from typing import Dict, List, Union
 
 # Test category to result fail descriptions mapping
 TEST_TO_RESULT_FAIL_MAP: Dict[str, List[str]] = {
