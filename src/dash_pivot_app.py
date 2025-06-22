@@ -825,7 +825,7 @@ def sort_stations_by_total_errors(pivot_df: pd.DataFrame) -> List[str]:
 
 def transform_error_pivot_to_tree_data(pivot_df: pd.DataFrame) -> List[Dict[str, Any]]:
     """Transform error analysis pivot into hierarchical display.
-    
+
     Creates structure: 📊 Total Errors → 📂 Error Code (Message) → └─ Model
 
     Args:

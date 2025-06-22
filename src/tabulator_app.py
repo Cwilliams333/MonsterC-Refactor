@@ -103,7 +103,11 @@ def transform_pivot_to_tabulator_tree_hybrid(
     tabulator_data = []
 
     # CREATE TOTAL ROW using ORIGINAL pivot totals
-    total_row = {"hierarchy": "📊 TOTAL FAILURES", "isTotal": True, "expand_icon": False}
+    total_row = {
+        "hierarchy": "📊 TOTAL FAILURES",
+        "isTotal": True,
+        "expand_icon": False,
+    }
 
     # Add station totals from ORIGINAL pivot (radi154=97)
     max_value = 0

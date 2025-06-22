@@ -402,13 +402,15 @@ def apply_failure_highlighting(
         return df
 
 
-@capture_exceptions(user_message="Failed to create Excel-style error analysis pivot table")
+@capture_exceptions(
+    user_message="Failed to create Excel-style error analysis pivot table"
+)
 def create_excel_style_error_pivot(
     df: pd.DataFrame, operator_filter: Union[str, List[str], None] = None
 ) -> pd.DataFrame:
     """
     Create Excel-style error analysis pivot table with 3-level hierarchy.
-    
+
     - Filters: Operator (applied before pivot)
     - Columns: Station ID
     - Rows: Model, error_code, error_message (3-level hierarchical)
@@ -445,8 +447,14 @@ def create_excel_style_error_pivot(
         # Step 2: Remove rows with missing critical error fields
         # Keep rows that have at least an error code OR error message (not completely empty)
         filtered_df = filtered_df[
-            (filtered_df["error_code"].notna() & (filtered_df["error_code"].astype(str).str.strip() != "")) |
-            (filtered_df["error_message"].notna() & (filtered_df["error_message"].astype(str).str.strip() != ""))
+            (
+                filtered_df["error_code"].notna()
+                & (filtered_df["error_code"].astype(str).str.strip() != "")
+            )
+            | (
+                filtered_df["error_message"].notna()
+                & (filtered_df["error_message"].astype(str).str.strip() != "")
+            )
         ]
 
         logger.info(
@@ -455,15 +463,23 @@ def create_excel_style_error_pivot(
 
         # Step 3: Fill missing values and ensure proper data types
         filtered_df = filtered_df.copy()
-        filtered_df["error_code"] = filtered_df["error_code"].fillna("(blank)").astype(str)
-        filtered_df["error_message"] = filtered_df["error_message"].fillna("(blank)").astype(str)
+        filtered_df["error_code"] = (
+            filtered_df["error_code"].fillna("(blank)").astype(str)
+        )
+        filtered_df["error_message"] = (
+            filtered_df["error_message"].fillna("(blank)").astype(str)
+        )
         filtered_df["Model"] = filtered_df["Model"].fillna("(unknown)").astype(str)
 
         # Step 4: Create pivot table with correct hierarchy: error_code → Model
         # This creates unique error codes with models nested underneath
         pivot_result = pd.pivot_table(
             filtered_df,
-            index=["error_code", "error_message", "Model"],  # Correct hierarchy: Error Code → Model
+            index=[
+                "error_code",
+                "error_message",
+                "Model",
+            ],  # Correct hierarchy: Error Code → Model
             columns=["Station ID"],  # Columns like Excel
             values="Operator",  # Count by Operator field (avoids self-grouping issues)
             aggfunc="count",  # Count occurrences

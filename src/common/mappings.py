@@ -5,7 +5,7 @@ This module contains all the mapping dictionaries used throughout the applicatio
 for translating device codes, station IDs, and test results into human-readable names.
 """
 
-from typing import Union, List, Dict, Any
+from typing import Any, Dict, List, Union
 
 # Test category to result fail descriptions mapping
 TEST_TO_RESULT_FAIL_MAP: Dict[str, List[str]] = {
@@ -83,7 +83,7 @@ STATION_TO_MACHINE: Dict[str, str] = {
     "radi174": "B58 Hawks",
     "radi178": "B58 Hawks",
     "radi179": "B58 Hawks",
-    "radi182": "B58 Hawks"
+    "radi182": "B58 Hawks",
 }
 
 # Device model to internal code mapping
@@ -183,21 +183,21 @@ DEVICE_MAP: Dict[str, Union[str, List[str]]] = {
     "SM-S721U": "r12s",
     "SM-S938U": "pa3q",
     "SM-S936U": "pa2q",
-    "SM-S931U": "pa1q"
+    "SM-S931U": "pa1q",
 }
 
 
 def get_device_code(model: str) -> str:
     """
     Helper function to get device code from device map.
-    
+
     Args:
         model: Device model name
-        
+
     Returns:
         Device code string, or 'Unknown' if not found
     """
-    code = DEVICE_MAP.get(model, 'Unknown')
+    code = DEVICE_MAP.get(model, "Unknown")
     if isinstance(code, list):
         return code[0]  # Take first code if multiple exist
     return code
@@ -206,10 +206,10 @@ def get_device_code(model: str) -> str:
 def resolve_station(station_id: str) -> str:
     """
     Resolve a station ID to a machine/location name.
-    
+
     Args:
         station_id: Station identifier
-        
+
     Returns:
         Human-readable machine/location name
     """
@@ -219,10 +219,10 @@ def resolve_station(station_id: str) -> str:
 def get_test_from_result_fail(result_fail: str) -> str:
     """
     Resolve a result_fail description to a test category name.
-    
+
     Args:
         result_fail: Failure description from test results
-        
+
     Returns:
         Test category name, or 'Unknown Test' if not found
     """

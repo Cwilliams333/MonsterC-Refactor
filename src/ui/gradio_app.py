@@ -21,40 +21,27 @@ import plotly.graph_objects as go
 # Import from common modules (new architecture)
 from common.io import load_data
 from common.logging_config import capture_exceptions, get_logger
-
 # Import data mappings from common module
-from common.mappings import (
-    DEVICE_MAP as device_map,
-    STATION_TO_MACHINE as station_to_machine,
-    TEST_TO_RESULT_FAIL_MAP as test_to_result_fail_map,
-)
-
+from common.mappings import DEVICE_MAP as device_map
+from common.mappings import STATION_TO_MACHINE as station_to_machine
+from common.mappings import TEST_TO_RESULT_FAIL_MAP as test_to_result_fail_map
 # Import from services (new architecture)
 from services.analysis_service import perform_analysis
-from services.filtering_service import (
-    apply_filter_and_sort,
-    filter_data,
-    get_unique_values,
-    update_filter_dropdowns,
-    update_filter_visibility,
-)
+from services.filtering_service import (apply_filter_and_sort, filter_data,
+                                        get_unique_values,
+                                        update_filter_dropdowns,
+                                        update_filter_visibility)
 from services.imei_extractor_service import process_data
-from services.pivot_service import (
-    analyze_top_models,
-    analyze_top_test_cases,
-    apply_failure_highlighting,
-    apply_filters,
-    create_excel_style_error_pivot,
-    create_excel_style_failure_pivot,
-    create_pivot_table,
-    find_top_failing_stations,
-    generate_pivot_table_filtered,
-)
-from services.repeated_failures_service import (
-    analyze_repeated_failures,
-    handle_test_case_selection,
-    update_summary_chart_and_data,
-)
+from services.pivot_service import (analyze_top_models, analyze_top_test_cases,
+                                    apply_failure_highlighting, apply_filters,
+                                    create_excel_style_error_pivot,
+                                    create_excel_style_failure_pivot,
+                                    create_pivot_table,
+                                    find_top_failing_stations,
+                                    generate_pivot_table_filtered)
+from services.repeated_failures_service import (analyze_repeated_failures,
+                                                handle_test_case_selection,
+                                                update_summary_chart_and_data)
 from services.wifi_error_service import analyze_wifi_errors
 
 # Configure logging

@@ -429,9 +429,9 @@ def get_column_summary(df: pd.DataFrame, column: str) -> Dict[str, Any]:
         "null_count": col_data.isnull().sum(),
         "null_percentage": (col_data.isnull().sum() / len(col_data)) * 100,
         "unique_count": col_data.nunique(),
-        "unique_percentage": (col_data.nunique() / col_data.count()) * 100
-        if col_data.count() > 0
-        else 0,
+        "unique_percentage": (
+            (col_data.nunique() / col_data.count()) * 100 if col_data.count() > 0 else 0
+        ),
     }
 
     # Add type-specific statistics
@@ -459,9 +459,9 @@ def get_column_summary(df: pd.DataFrame, column: str) -> Dict[str, Any]:
         summary.update(
             {
                 "most_common_values": value_counts.to_dict(),
-                "avg_length": col_data.astype(str).str.len().mean()
-                if col_data.count() > 0
-                else 0,
+                "avg_length": (
+                    col_data.astype(str).str.len().mean() if col_data.count() > 0 else 0
+                ),
             }
         )
 
