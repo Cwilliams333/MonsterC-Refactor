@@ -16,15 +16,7 @@ from typing import Any, Dict, List, Optional
 import dash
 import dash_ag_grid as dag
 import pandas as pd
-from dash import (
-    Input,
-    Output,
-    State,
-    callback,
-    clientside_callback,
-    dcc,
-    html,
-)
+from dash import Input, Output, State, callback, clientside_callback, dcc, html
 
 # Add src directory to Python path for imports
 project_root = Path(__file__).parent.parent
@@ -550,9 +542,7 @@ def debug_pivot_calculations(pivot_df: pd.DataFrame) -> None:
     # Get station columns
     excluded_cols = {"error_code", "error_message", "Model", "result_FAIL"}
     station_cols = [col for col in pivot_df.columns if col not in excluded_cols]
-    logger.info(
-        f"Station columns ({len(station_cols)}): {station_cols[:10]}..."
-    )
+    logger.info(f"Station columns ({len(station_cols)}): {station_cols[:10]}...")
 
     # Debug model calculations
     logger.info("\n=== MODEL CALCULATIONS ==")
@@ -628,14 +618,14 @@ def debug_pivot_calculations(pivot_df: pd.DataFrame) -> None:
 def calculate_pivot_summary_stats(pivot_df: pd.DataFrame) -> Dict[str, Any]:
     """
     Calculate key summary statistics.
-    
+
     Shows the highest INDIVIDUAL cell values visible in the pivot table.
 
     Args:
         pivot_df: DataFrame with failure analysis data
 
     Returns:
-        Dictionary with highest individual cell values that match 
+        Dictionary with highest individual cell values that match
         what's visible in the pivot table
     """
     try:
@@ -834,15 +824,15 @@ def sort_stations_by_total_errors(pivot_df: pd.DataFrame) -> List[str]:
 
 
 def transform_error_pivot_to_tree_data(pivot_df: pd.DataFrame) -> List[Dict[str, Any]]:
-    """
-    Transform error analysis pivot into hierarchical display with correct structure:
-    📊 Total Errors → 📂 Error Code (Message) → └─ Model
+    """Transform error analysis pivot into hierarchical display.
+    
+    Creates structure: 📊 Total Errors → 📂 Error Code (Message) → └─ Model
 
     Args:
         pivot_df: DataFrame with columns [error_code, error_message, Model, ...station_cols]
 
     Returns:
-        List of dictionaries with proper 3-level visual hierarchy
+        List of dictionaries with proper 3-level visual hierarchy.
     """
     if pivot_df.empty:
         return []
@@ -1169,7 +1159,7 @@ def update_summary_panel(stored_data):
         test_case_text = f"{summary_stats['highest_test_case']['name']}: {summary_stats['highest_test_case']['count']} failures with {summary_stats['highest_test_case']['model']} at {summary_stats['highest_test_case']['station']}"
         station_text = f"{summary_stats['highest_station']['name']}: {summary_stats['highest_station']['count']} failures for '{summary_stats['highest_station']['test_case']}' with {summary_stats['highest_station']['model']}"
 
-        logger.info(f"Updated summary panel with stats")
+        logger.info("Updated summary panel with stats")
         return model_text, test_case_text, station_text
 
     except Exception as e:

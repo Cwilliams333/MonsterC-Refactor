@@ -16,7 +16,7 @@ sys.path.insert(0, str(src_path))
 
 
 def main():
-    """Launch the Tabulator.js frontend server to support collapsible groups not available in Gradio."""
+    """Launch Tabulator.js frontend server for collapsible groups not in Gradio."""
     print("🚀 Launching MonsterC with Tabulator.js Collapsible Groups!")
     print("=" * 60)
 

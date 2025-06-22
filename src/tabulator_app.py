@@ -916,7 +916,7 @@ def tabulator_interface():
 
 @app.route("/api/pivot-data")
 def get_pivot_data():
-    """API endpoint to serve pivot data in Tabulator tree format."""
+    """Serve pivot data in Tabulator tree format."""
     try:
         # Load the most recent pivot data
         data_file = "/tmp/monsterc_pivot_data.json"
@@ -945,9 +945,7 @@ def get_pivot_data():
         # Create CONCATENATED test case structure but use ORIGINAL totals
         concatenated_pivot = create_concatenated_failure_pivot()
         if concatenated_pivot is not None and not concatenated_pivot.empty:
-            logger.info(
-                "🔗 Creating hybrid: concatenated test cases + original totals"
-            )
+            logger.info("🔗 Creating hybrid: concatenated test cases + original totals")
 
             # Use concatenated data for test case structure, but original pivot for station totals
             tree_data = transform_pivot_to_tabulator_tree_hybrid(
@@ -960,10 +958,8 @@ def get_pivot_data():
         # ALWAYS use original pivot data for column sorting (correct totals)
         # Only use concatenated data for test case grouping structure
         station_cols = sort_stations_by_total_errors(pivot_df)
-        logger.info(
-            f"🔥 Using ORIGINAL pivot for column sorting: {station_cols[:3]}"
-        )
-        columns = create_tabulator_columns(station_cols)
+        logger.info(f"🔥 Using ORIGINAL pivot for column sorting: {station_cols[:3]}")
+        create_tabulator_columns(station_cols)
 
         logger.info(f"🚀 Serving {len(tree_data)} rows to Tabulator")
         return jsonify(tree_data)  # Return just the data array, not wrapped in object
