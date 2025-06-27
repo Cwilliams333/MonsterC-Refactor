@@ -27,11 +27,30 @@ from dash_pivot_app import sort_stations_by_total_errors  # noqa: E402
 # Configure logging
 logger = get_logger(__name__)
 
+# Global variable to store device failure counts for accurate totals
+device_failure_counts = {}
+
+# Global dict to hold data paths passed from Gradio
+DATA_PATHS = {}
+
 # Initialize Flask app
 app = Flask(__name__)
 
 
-def create_concatenated_failure_pivot() -> pd.DataFrame:
+def load_device_failure_counts():
+    """Load device failure counts for accurate totals."""
+    global device_failure_counts
+    device_counts_file = "/tmp/monsterc_device_counts.json"
+    try:
+        with open(device_counts_file, "r") as f:
+            device_failure_counts = json.load(f)
+            logger.info(f"📊 Loaded device failure counts: {device_failure_counts}")
+    except FileNotFoundError:
+        logger.warning(f"Device counts file not found: {device_counts_file}")
+        device_failure_counts = {}
+
+
+def create_concatenated_failure_pivot(automation_data_file: str = None) -> pd.DataFrame:
     """
     Create pivot table that preserves concatenated test cases.
 
@@ -39,8 +58,9 @@ def create_concatenated_failure_pivot() -> pd.DataFrame:
     comma-separated test cases like "Camera Pictures,Camera Flash".
     """
     try:
-        # Load the most recent raw automation data
-        automation_data_file = "/tmp/monsterc_automation_data.json"
+        # Use provided path or fall back to default
+        if automation_data_file is None:
+            automation_data_file = "/tmp/monsterc_automation_data.json"
 
         if not os.path.exists(automation_data_file):
             logger.warning(
@@ -109,12 +129,29 @@ def transform_pivot_to_tabulator_tree_hybrid(
         "expand_icon": False,
     }
 
-    # Add station totals from ORIGINAL pivot (radi154=97)
+    # Add station totals using device failure counts for accuracy
+    global device_failure_counts
     max_value = 0
     max_station = ""
     grand_total_sum = 0
+
+    # Debug: Log available device counts vs pivot columns
+    logger.info(
+        f"📊 Available device counts: {list(device_failure_counts.keys()) if device_failure_counts else 'None'}"
+    )
+    logger.info(f"📊 Station columns: {station_cols}")
+
     for col in station_cols:
-        total_value = int(original_pivot_df[col].sum())
+        # Use device failure counts if available, otherwise fall back to pivot counts
+        if device_failure_counts and col in device_failure_counts:
+            total_value = device_failure_counts[col]
+            logger.info(f"✅ Using device count for {col}: {total_value}")
+        else:
+            total_value = int(original_pivot_df[col].sum())
+            logger.warning(
+                f"⚠️ Using pivot count for {col}: {total_value} (device counts not available)"
+            )
+
         total_row[col] = total_value
         grand_total_sum += total_value
         if total_value > max_value:
@@ -123,6 +160,11 @@ def transform_pivot_to_tabulator_tree_hybrid(
 
     # Add Grand Total column (sum of all stations horizontally)
     total_row["Grand_Total"] = grand_total_sum
+
+    logger.info(f"🎯 Tabulator Grand total calculated: {grand_total_sum}")
+    logger.info(
+        f"🎯 Expected device total: {sum(device_failure_counts.values()) if device_failure_counts else 'N/A'}"
+    )
 
     logger.info(
         f"🎯 CORRECT TOTALS - radi154: {total_row.get('radi154', 'N/A')}, "
@@ -339,7 +381,7 @@ def create_tabulator_columns(station_cols: List[str]) -> List[Dict[str, Any]]:
             {
                 "title": col,
                 "field": col,
-                "width": 80,
+                "width": 100,
                 "hozAlign": "center",
                 # Note: Formatter and cellClick functions will be handled in JavaScript
             }
@@ -361,15 +403,25 @@ TABULATOR_HTML = """
             font-family: Arial, sans-serif;
             margin: 20px;
             background-color: #f8f9fa;
+            overflow-x: auto;                     /* 🔧 Allow horizontal scrolling on body */
         }
         .header {
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
             color: #2c3e50;
+        }
+        .header h1 {
+            margin-bottom: 5px;
+            font-size: 1.8em;
+        }
+        .header h2 {
+            margin-top: 0;
+            font-size: 1.2em;
+            color: #6c757d;
         }
         .controls {
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
         .btn {
             background-color: #28a745;
@@ -394,6 +446,8 @@ TABULATOR_HTML = """
             border: 1px solid #dee2e6;
             border-radius: 8px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            overflow-x: auto;                     /* 🔧 Enable horizontal scrolling */
+            max-width: 100%;                      /* 🔧 Ensure container respects viewport */
         }
         /* Custom styling for hierarchy column */
         .tabulator .tabulator-cell[tabulator-field="hierarchy"] {
@@ -416,13 +470,39 @@ TABULATOR_HTML = """
             color: #6c757d;
             font-style: italic;
         }
-        .info-panel {
-            background-color: #d1ecf1;
-            border: 1px solid #bee5eb;
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 20px;
+        .compact-info {
             text-align: center;
+            margin-bottom: 15px;
+        }
+        .info-toggle {
+            background-color: #17a2b8;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: background-color 0.3s ease;
+        }
+        .info-toggle:hover {
+            background-color: #138496;
+        }
+        .info-details {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 12px;
+            border-radius: 5px;
+            margin-top: 8px;
+            text-align: left;
+            font-size: 13px;
+            line-height: 1.4;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .info-details p {
+            margin: 6px 0;
         }
 
         /* Breathing animation for first test case hint */
@@ -481,11 +561,14 @@ TABULATOR_HTML = """
         <h2>✨ Native Collapsible Groups with Tabulator.js ✨</h2>
     </div>
 
-    <div class="info-panel">
-        <p><strong>🎯 Test cases start collapsed - Click anywhere on test case names to expand!</strong></p>
-        <p><strong>🎨 Heat Map Legend:</strong></p>
-        <p>🔴 <strong>RED</strong>: Overall highest failure count (Total row) | 🟠 <strong>ORANGE</strong>: Highest per test case | 🟡 <strong>YELLOW</strong>: Highest for top 3 models</p>
-        <p>📊 <strong>Grand Total</strong>: Sum of all station failures (rightmost column) | Columns sorted by failures (highest left) | Test cases sorted by Grand Total!</p>
+    <!-- Compact collapsible instructions -->
+    <div class="compact-info">
+        <button class="info-toggle" onclick="toggleInfo()">📋 Instructions & Legend</button>
+        <div id="info-details" class="info-details" style="display: none;">
+            <p><strong>🎯 Usage:</strong> Test cases start collapsed - Click test case names to expand!</p>
+            <p><strong>🎨 Heat Map:</strong> 🔴 RED (overall max) | 🟠 ORANGE (test case max) | 🟡 YELLOW (top 3 models)</p>
+            <p><strong>📊 Layout:</strong> Columns sorted by failures (highest left) | Grand Total = sum of all stations</p>
+        </div>
     </div>
 
     <div class="controls">
@@ -521,7 +604,9 @@ TABULATOR_HTML = """
                         title: "Test Case → Model",
                         field: "hierarchy",
                         width: 350,
-                        responsive: 0,
+                        minWidth: 300,                    // 🔧 Minimum width to prevent squeezing
+                        responsive: 0,                    // Never hide this column
+                        frozen: true,                     // 🔧 Pin this column to the left
                         formatter: "html"
                     }
                 ];
@@ -551,12 +636,40 @@ TABULATOR_HTML = """
                         // Store stationColumns globally for formatter access
                         window.stationColumns = stationColumns;
 
+                        // Add Grand Total column right after hierarchy (for quick access)
+                        columns.push({
+                            title: "Grand Total",
+                            field: "Grand_Total",
+                            width: 120,
+                            minWidth: 100,
+                            hozAlign: "center",
+                            headerStyle: {
+                                backgroundColor: "#17a2b8",  // Blue header background
+                                color: "white",
+                                fontWeight: "bold"
+                            },
+                            formatter: function(cell, formatterParams, onRendered) {
+                                var value = cell.getValue();
+                                var rowData = cell.getRow().getData();
+
+                                // Show all values (no zen zeros for Grand Total)
+                                // Style Grand Total column with dark background and white text for visibility
+                                cell.getElement().style.fontWeight = "bold";
+                                cell.getElement().style.color = "white";
+                                cell.getElement().style.backgroundColor = "#495057";  // Dark gray to match group rows
+                                cell.getElement().style.borderLeft = "2px solid #6c757d";
+
+                                return value || 0;
+                            }
+                        });
+
                         // Add columns in sorted order (highest failures on left)
                         stationColumns.forEach(function(stationInfo) {
                             columns.push({
                                 title: stationInfo.station,
                                 field: stationInfo.station,
-                                width: 80,
+                                width: 100,
+                                minWidth: 80,                      // 🔧 Minimum width for station columns
                                 hozAlign: "center",
                                 formatter: function(cell, formatterParams, onRendered) {
                                     var value = cell.getValue();
@@ -630,20 +743,27 @@ TABULATOR_HTML = """
                             });
                         });
 
-                        // Add Grand Total column at the very end
+                        // Add Grand Total column at the very end (rightmost)
                         columns.push({
                             title: "Grand Total",
                             field: "Grand_Total",
                             width: 120,
+                            minWidth: 100,                        // 🔧 Minimum width for Grand Total
                             hozAlign: "center",
+                            headerStyle: {
+                                backgroundColor: "#17a2b8",       // Blue header background to match first Grand Total
+                                color: "white",
+                                fontWeight: "bold"
+                            },
                             formatter: function(cell, formatterParams, onRendered) {
                                 var value = cell.getValue();
                                 var rowData = cell.getRow().getData();
 
                                 // Show all values (no zen zeros for Grand Total)
-                                // Style Grand Total column with bold text
+                                // Style Grand Total column with dark background and white text for visibility
                                 cell.getElement().style.fontWeight = "bold";
-                                cell.getElement().style.backgroundColor = "#f8f9fa";
+                                cell.getElement().style.color = "white";
+                                cell.getElement().style.backgroundColor = "#495057";  // Dark gray to match group rows
                                 cell.getElement().style.borderLeft = "2px solid #6c757d";
 
                                 return value || 0;
@@ -659,8 +779,8 @@ TABULATOR_HTML = """
                     dataTreeStartExpanded: false,      // 🎯 Start with groups COLLAPSED for clean view
                     dataTreeChildField: "_children",   // Field containing child rows
                     height: "600px",
-                    layout: "fitColumns",
-                    responsiveLayout: "hide",
+                    layout: "fitData",                 // 🔧 Fixed: Use fitData instead of fitColumns for horizontal scrolling
+                    responsiveLayout: false,           // 🔧 Fixed: Disable responsive layout that hides columns
                     placeholder: "Loading collapsible automation data...",
                     columns: columns,
                     rowFormatter: function(row) {
@@ -836,6 +956,20 @@ TABULATOR_HTML = """
 
         console.log('🎉 Tabulator initialized! Click arrows to collapse/expand groups!');
 
+        // Function to toggle instructions panel
+        function toggleInfo() {
+            var details = document.getElementById('info-details');
+            var button = document.querySelector('.info-toggle');
+
+            if (details.style.display === 'none') {
+                details.style.display = 'block';
+                button.innerHTML = '📋 Hide Instructions & Legend';
+            } else {
+                details.style.display = 'none';
+                button.innerHTML = '📋 Instructions & Legend';
+            }
+        }
+
         // Functions for expand/collapse with loading indicators
         function expandAllWithLoading() {
             if (!window.table) return;
@@ -922,8 +1056,20 @@ def tabulator_interface():
 def get_pivot_data():
     """Serve pivot data in Tabulator tree format."""
     try:
-        # Load the most recent pivot data
-        data_file = "/tmp/monsterc_pivot_data.json"
+        # Use data paths passed from Gradio
+        if not DATA_PATHS or "pivot_data" not in DATA_PATHS:
+            # Fall back to default paths for standalone testing
+            data_file = "/tmp/monsterc_pivot_data.json"
+            device_counts_file = "/tmp/monsterc_device_counts.json"
+            automation_data_file = "/tmp/monsterc_automation_data.json"
+        else:
+            data_file = DATA_PATHS["pivot_data"]
+            device_counts_file = DATA_PATHS.get(
+                "device_counts", "/tmp/monsterc_device_counts.json"
+            )
+            automation_data_file = DATA_PATHS.get(
+                "automation_data", "/tmp/monsterc_automation_data.json"
+            )
 
         if not os.path.exists(data_file):
             return (
@@ -946,8 +1092,17 @@ def get_pivot_data():
         pivot_df = pd.DataFrame(stored_data)
         logger.info(f"📊 Loaded pivot data: {pivot_df.shape}")
 
+        # Load device failure counts for accurate totals
+        global device_failure_counts
+        if os.path.exists(device_counts_file):
+            with open(device_counts_file, "r") as f:
+                device_failure_counts = json.load(f)
+                logger.info(
+                    f"📊 Loaded device failure counts from: {device_counts_file}"
+                )
+
         # Create CONCATENATED test case structure but use ORIGINAL totals
-        concatenated_pivot = create_concatenated_failure_pivot()
+        concatenated_pivot = create_concatenated_failure_pivot(automation_data_file)
         if concatenated_pivot is not None and not concatenated_pivot.empty:
             logger.info("🔗 Creating hybrid: concatenated test cases + original totals")
 
@@ -974,10 +1129,24 @@ def get_pivot_data():
 
 
 if __name__ == "__main__":
+    # Accept data paths from command line
+    if len(sys.argv) > 1:
+        try:
+            # Load the JSON string of paths from the command line argument
+            DATA_PATHS = json.loads(sys.argv[1])
+            logger.info(f"🚀 Received data paths from Gradio: {DATA_PATHS}")
+        except (json.JSONDecodeError, IndexError) as e:
+            logger.error(f"Could not parse data paths from command line: {e}")
+            # Fall back to default paths for standalone testing
+            DATA_PATHS = {}
+    else:
+        logger.warning("No data paths provided via CLI, using defaults")
+        DATA_PATHS = {}
+
     logger.info("🚀 Starting Tabulator.js frontend server...")
     logger.info("📊 Navigate to http://127.0.0.1:5001 for collapsible groups!")
     app.run(
-        debug=True,
+        debug=False,  # IMPORTANT: Set to False for production
         host="127.0.0.1",
         port=5001,  # Different port from Gradio (7860) and Dash (8051)
         threaded=True,

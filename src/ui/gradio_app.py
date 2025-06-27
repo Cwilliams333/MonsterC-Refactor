@@ -5,6 +5,7 @@ This module implements the Strangler Fig pattern - creating a new UI shell that 
 100% compatibility with the original while gradually introducing the new modular architecture.
 """
 
+import atexit
 import json
 import os
 import subprocess
@@ -59,6 +60,21 @@ from services.wifi_error_service import analyze_wifi_errors
 
 # Configure logging
 logger = get_logger(__name__)
+
+# Global variable to hold subprocess
+dash_process = None  # Will be renamed to tabulator_process later
+
+
+def cleanup_processes():
+    """Cleanup function to terminate subprocess on exit."""
+    global dash_process
+    if dash_process and dash_process.poll() is None:
+        logger.info("Terminating subprocess on exit.")
+        dash_process.terminate()
+        dash_process.wait()
+
+
+atexit.register(cleanup_processes)
 
 
 # Gradio UI Definition
@@ -412,15 +428,7 @@ with gr.Blocks(
                     )
 
         with gr.TabItem("🚨 Interactive Pivot Analysis"):
-            # Main action buttons at the TOP for immediate access
-            with gr.Row():
-                interactive_operator_filter = gr.Dropdown(
-                    label="Filter by Operator (Optional)",
-                    choices=["All"],
-                    value="All",
-                    interactive=True,
-                )
-
+            # Main action buttons prominently displayed at the TOP
             with gr.Row():
                 with gr.Column(scale=1):
                     generate_interactive_pivot_button = gr.Button(
@@ -434,6 +442,27 @@ with gr.Blocks(
                         variant="secondary",
                         size="lg",
                     )
+
+            # Configuration options in collapsible accordions
+            with gr.Accordion("⚙️ Failure Counting Method", open=False):
+                failure_counting_method = gr.Radio(
+                    choices=[
+                        "Pure Failures (Overall status = 'FAILURE')",
+                        "Comprehensive (FAILURE or ERROR with result_FAIL)",
+                    ],
+                    label="Method Selection",
+                    value="Pure Failures (Overall status = 'FAILURE')",
+                    interactive=True,
+                    info="Pure: Counts only FAILURE status | Comprehensive: Includes ERROR records with test data",
+                )
+
+            with gr.Accordion("🔍 Filter Options", open=False):
+                interactive_operator_filter = gr.Dropdown(
+                    label="Filter by Operator (Optional)",
+                    choices=["All"],
+                    value="All",
+                    interactive=True,
+                )
 
             with gr.Row():
                 interactive_pivot_status = gr.Markdown(
@@ -910,11 +939,15 @@ with gr.Blocks(
             gr.Row(visible=False),
         ),
     )
-    def generate_interactive_pivot_wrapped(df, operator_filter):
-        """Generate interactive automation-only high failure analysis using Dash AG Grid."""
-        global dash_process
+    def generate_interactive_pivot_wrapped(
+        df, operator_filter, failure_counting_method
+    ):
+        """Generate interactive automation-only high failure analysis using Tabulator."""
+        global dash_process  # Will rename to tabulator_process later
 
-        logger.info("Generating interactive automation-only failure analysis")
+        logger.info(
+            f"Generating interactive failure analysis with method: {failure_counting_method}"
+        )
 
         # Check if dataframe is loaded
         if df is None or df.empty:
@@ -932,6 +965,45 @@ with gr.Blocks(
                 dash_process.terminate()
                 time.sleep(1)  # Give it time to stop
 
+            # Debug: Check what operators exist in the data and their failure counts
+            logger.info(
+                f"🔍 All unique operators in data: {sorted(df['Operator'].unique())}"
+            )
+
+            # Check failure counts for ALL operators to see what Excel might be including
+            all_operator_failures = (
+                df[df["Overall status"] == "FAILURE"]
+                .groupby("Operator")
+                .size()
+                .to_dict()
+            )
+            logger.info(f"🔍 Failure counts by ALL operators: {all_operator_failures}")
+
+            # Also check if Excel might be filtering by Station ID patterns instead of Operator
+            failure_data = df[df["Overall status"] == "FAILURE"]
+            station_operator_mapping = (
+                failure_data.groupby(["Station ID", "Operator"])
+                .size()
+                .reset_index(name="count")
+            )
+            logger.info(f"🔍 Station ID to Operator mapping for failures:")
+            for _, row in station_operator_mapping.iterrows():
+                logger.info(
+                    f"   {row['Station ID']} -> {row['Operator']} ({row['count']} failures)"
+                )
+
+            # Check if there are automation station IDs with different operators
+            automation_station_pattern = failure_data[
+                failure_data["Station ID"].str.startswith("radi", na=False)
+            ]
+            if not automation_station_pattern.empty:
+                unique_operators_for_radi = automation_station_pattern[
+                    "Operator"
+                ].unique()
+                logger.info(
+                    f"🔍 Operators found for RADI stations: {unique_operators_for_radi}"
+                )
+
             # Define automation operators based on business logic analysis
             automation_operators = [
                 "STN251_RED(id:10089)",  # STN1_RED
@@ -939,6 +1011,86 @@ with gr.Blocks(
                 "STN351_GRN(id:10380)",  # STN1_GREEN
                 "STN352_GRN(id:10381)",  # STN2_GREEN
             ]
+
+            # CRITICAL ANALYSIS: Compare counting methods to find data quality issues
+            logger.info("🚨 INVESTIGATING DATA QUALITY DISCREPANCY:")
+
+            # Method 1: Count by Overall status == "FAILURE" (our current method)
+            method1_failures = df[
+                (df["Operator"].isin(automation_operators))
+                & (df["Overall status"] == "FAILURE")
+            ]
+            method1_by_station = method1_failures.groupby("Station ID").size().to_dict()
+            logger.info(
+                f"📊 Method 1 (Overall status=FAILURE): {sum(method1_by_station.values())} total failures"
+            )
+
+            # Method 2: Count by populated result_FAIL (customer's preferred method)
+            method2_failures = df[
+                (df["Operator"].isin(automation_operators))
+                & (df["result_FAIL"].notna())
+                & (df["result_FAIL"].str.strip() != "")
+            ]
+            method2_by_station = method2_failures.groupby("Station ID").size().to_dict()
+            logger.info(
+                f"📊 Method 2 (populated result_FAIL): {sum(method2_by_station.values())} total failures"
+            )
+
+            # Find discrepancies per station
+            all_stations = set(
+                list(method1_by_station.keys()) + list(method2_by_station.keys())
+            )
+            logger.info("🔍 STATION-BY-STATION COMPARISON:")
+            for station in sorted(all_stations):
+                count1 = method1_by_station.get(station, 0)
+                count2 = method2_by_station.get(station, 0)
+                diff = count1 - count2
+                if diff != 0:
+                    logger.error(
+                        f"❌ {station}: Method1={count1}, Method2={count2}, Diff={diff}"
+                    )
+                else:
+                    logger.info(f"✅ {station}: Both methods={count1}")
+
+            # Identify the problematic records causing discrepancies
+            logger.info("🔍 ANALYZING PROBLEMATIC RECORDS:")
+
+            # Records with FAILURE status but no result_FAIL
+            ghost_failures = df[
+                (df["Operator"].isin(automation_operators))
+                & (df["Overall status"] == "FAILURE")
+                & ((df["result_FAIL"].isna()) | (df["result_FAIL"].str.strip() == ""))
+            ]
+            if not ghost_failures.empty:
+                logger.warning(
+                    f"👻 GHOST FAILURES: {len(ghost_failures)} records with FAILURE status but no result_FAIL"
+                )
+                ghost_by_station = ghost_failures.groupby("Station ID").size().to_dict()
+                for station, count in ghost_by_station.items():
+                    logger.warning(f"   👻 {station}: {count} ghost failures")
+
+            # Records with result_FAIL but not FAILURE status
+            phantom_results = df[
+                (df["Operator"].isin(automation_operators))
+                & (df["result_FAIL"].notna())
+                & (df["result_FAIL"].str.strip() != "")
+                & (df["Overall status"] != "FAILURE")
+            ]
+            if not phantom_results.empty:
+                logger.warning(
+                    f"👻 PHANTOM RESULTS: {len(phantom_results)} records with result_FAIL but not FAILURE status"
+                )
+                phantom_statuses = (
+                    phantom_results["Overall status"].value_counts().to_dict()
+                )
+                logger.warning(f"   👻 Phantom statuses: {phantom_statuses}")
+                phantom_by_station = (
+                    phantom_results.groupby("Station ID").size().to_dict()
+                )
+                for station, count in phantom_by_station.items():
+                    logger.warning(f"   👻 {station}: {count} phantom results")
+
+            logger.info(f"🔍 Looking for automation operators: {automation_operators}")
 
             # Filter for automation operators only
             automation_df = df[df["Operator"].isin(automation_operators)]
@@ -953,17 +1105,25 @@ with gr.Blocks(
                     gr.Row(visible=False),
                 )
 
-            # Apply business logic: Count FAILURE OR (ERROR with result_FAIL populated)
-            # This preserves the existing beautiful pivot logic but with correct automation failure criteria
-            failure_conditions = (automation_df["Overall status"] == "FAILURE") | (
-                (automation_df["Overall status"] == "ERROR")
-                & (automation_df["result_FAIL"].notna())
-                & (automation_df["result_FAIL"].str.strip() != "")
-            )
+            # Apply user-selected counting method
+            if "Comprehensive" in failure_counting_method:
+                # Method B: Comprehensive Analysis - includes ERROR records with test data
+                failure_conditions = (automation_df["Overall status"] == "FAILURE") | (
+                    (automation_df["Overall status"] == "ERROR")
+                    & (automation_df["result_FAIL"].notna())
+                    & (automation_df["result_FAIL"].str.strip() != "")
+                )
+                logger.info(
+                    "Using Comprehensive failure counting method (FAILURE + ERROR with result_FAIL)"
+                )
+            else:
+                # Method A: Pure Failures (Default) - Excel-compatible
+                failure_conditions = automation_df["Overall status"] == "FAILURE"
+                logger.info("Using Pure Failures counting method (FAILURE only)")
 
             automation_failures = automation_df[failure_conditions]
             logger.info(
-                f"Found {len(automation_failures)} automation failures using FAILURE + ERROR with result_FAIL logic"
+                f"Found {len(automation_failures)} automation failures using {failure_counting_method}"
             )
 
             if automation_failures.empty:
@@ -1015,9 +1175,42 @@ with gr.Blocks(
                 f"🔗 Raw data contains concatenated test cases like: {automation_failures['result_FAIL'].unique()[:3]}"
             )
 
-            # Create the Excel-style pivot data focused on automation failures only
-            # This preserves the beautiful hierarchy: Test Cases (📁) -> Models (└─) with zen zeros and color coding
-            pivot_result = create_excel_style_failure_pivot(automation_failures, None)
+            # Calculate device failure counts per station BEFORE filtering - this captures ALL failures like Excel
+            # This counts actual device failures (not exploded test cases) for the TOTAL row
+            device_failure_counts = (
+                automation_failures.groupby("Station ID").size().to_dict()
+            )
+            total_device_failures = sum(device_failure_counts.values())
+            logger.info(
+                f"📊 Device failure counts per station (ALL failures): {device_failure_counts}"
+            )
+            logger.info(
+                f"📊 Total device failures (Excel-compatible): {total_device_failures}"
+            )
+            logger.info(
+                f"📊 Number of unique Station IDs: {len(device_failure_counts)} (expected: 24)"
+            )
+            logger.info(
+                f"📊 Station IDs with failures: {sorted(device_failure_counts.keys())}"
+            )
+
+            # Filter to only failures with populated result_FAIL for detailed pivot analysis
+            failures_with_test_cases = automation_failures[
+                automation_failures["result_FAIL"].notna()
+                & (automation_failures["result_FAIL"].str.strip() != "")
+            ]
+            logger.info(
+                f"📊 Failures with test case details: {len(failures_with_test_cases)}"
+            )
+            logger.info(
+                f"📊 Failures without test case details: {len(automation_failures) - len(failures_with_test_cases)}"
+            )
+
+            # Create the Excel-style pivot data using only failures with test case details
+            # This creates detailed test case breakdown, totals will be calculated correctly in frontend
+            pivot_result = create_excel_style_failure_pivot(
+                failures_with_test_cases, None
+            )
 
             if pivot_result.empty:
                 logger.warning("Generated pivot table is empty")
@@ -1029,9 +1222,30 @@ with gr.Blocks(
 
             logger.info(f"Generated pivot data with shape: {pivot_result.shape}")
 
+            # Check if we have all expected automation stations
+            if len(device_failure_counts) < 24:
+                logger.warning(
+                    f"⚠️ Missing stations! Only {len(device_failure_counts)}/24 stations have failures"
+                )
+                all_automation_stations = set(
+                    automation_failures["Station ID"].unique()
+                )
+                stations_with_failures = set(device_failure_counts.keys())
+                logger.info(
+                    f"📊 All automation stations in data: {sorted(all_automation_stations)} (count: {len(all_automation_stations)})"
+                )
+                if len(all_automation_stations) > len(stations_with_failures):
+                    stations_no_failures = (
+                        all_automation_stations - stations_with_failures
+                    )
+                    logger.info(
+                        f"📊 Stations with zero failures: {sorted(stations_no_failures)}"
+                    )
+
             # Save the pivot data to a temporary file
             temp_dir = tempfile.gettempdir()
             data_file = os.path.join(temp_dir, "monsterc_pivot_data.json")
+            device_counts_file = os.path.join(temp_dir, "monsterc_device_counts.json")
 
             # Convert to JSON format for Dash app (handle datetime columns)
             pivot_result_json = pivot_result.copy()
@@ -1062,14 +1276,28 @@ with gr.Blocks(
             with open(data_file, "w") as f:
                 json.dump(pivot_json, f)
 
-            logger.info(f"Saved pivot data to: {data_file}")
+            # Save device failure counts for accurate total calculations
+            with open(device_counts_file, "w") as f:
+                json.dump(device_failure_counts, f)
 
-            # Launch the Dash app with the data file
-            dash_script = os.path.join(
-                os.path.dirname(__file__), "..", "dash_pivot_app.py"
+            logger.info(f"Saved pivot data to: {data_file}")
+            logger.info(f"Saved device counts to: {device_counts_file}")
+
+            # Create data paths object for Tabulator app
+            data_paths = {
+                "pivot_data": data_file,
+                "device_counts": device_counts_file,
+                "automation_data": automation_data_file,
+            }
+            paths_arg = json.dumps(data_paths)
+
+            # Launch the Tabulator app with data paths
+            tabulator_script = os.path.join(
+                os.path.dirname(__file__), "..", "tabulator_app.py"
             )
             dash_process = subprocess.Popen(
-                ["python", dash_script, data_file], cwd=os.path.dirname(dash_script)
+                ["python", tabulator_script, paths_arg],
+                cwd=os.path.dirname(tabulator_script),
             )
 
             # Give the server time to start
@@ -1084,38 +1312,179 @@ with gr.Blocks(
                     gr.Row(visible=False),
                 )
 
-            # Create the iframe HTML
+            # Create the iframe HTML with zoomed out view for quick snapshot
             iframe_html = f"""
-            <div style="width: 100%; height: 800px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
-                <iframe
-                    src="http://127.0.0.1:8051"
-                    width="100%"
-                    height="800px"
-                    frameborder="0"
-                    style="border: none;">
-                </iframe>
+            <div style="width: 100%; margin-top: 20px;">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 15px; border-radius: 8px 8px 0 0;">
+                    <h3 style="color: white; margin: 0; text-align: center; font-size: 20px;">
+                        📊 Interactive Pivot Table - Quick Snapshot View
+                    </h3>
+                    <p style="color: white; margin: 5px 0 0 0; text-align: center; font-size: 14px;">
+                        💡 Tip: <a href="http://127.0.0.1:5001" target="_blank" style="color: #FFE66D; font-weight: bold; text-decoration: underline;">
+                        Open in New Tab</a> for full analysis with zoom controls
+                    </p>
+                </div>
+                <div style="border: 2px solid #667eea; border-top: none; border-radius: 0 0 8px 8px; overflow: hidden;">
+                    <iframe
+                        src="http://127.0.0.1:5001"
+                        width="100%"
+                        height="750px"
+                        frameborder="0"
+                        style="border: none;">
+                    </iframe>
+                </div>
             </div>
-            <p style="text-align: center; margin-top: 10px; color: #666; font-size: 14px;">
-                💡 Options: <a href="http://127.0.0.1:8051" target="_blank">AG Grid View</a> |
-                <a href="http://127.0.0.1:5001" target="_blank" style="color: #28a745; font-weight: bold;">✨ NEW: Collapsible Groups! ✨</a>
-            </p>
             """
 
-            status_message = f"""
-            ✅ **Success!** Interactive pivot table generated successfully
+            # Calculate percentages for better insights
+            station_utilization_pct = round((len(device_failure_counts) / 24) * 100, 1)
 
-            📊 **Data Summary:**
-            - **Rows:** {pivot_result.shape[0]} failure combinations
-            - **Columns:** {pivot_result.shape[1]} stations/fields
-            - **Filter Applied:** {operator_filter if operator_filter != "All" else "None (showing all operators)"}
+            # Determine color coding based on values
+            failure_status = (
+                "🔴 HIGH"
+                if total_device_failures > 800
+                else "🟡 MEDIUM"
+                if total_device_failures > 400
+                else "🟢 LOW"
+            )
+            station_status = (
+                "🔴 HIGH"
+                if station_utilization_pct > 75
+                else "🟡 MEDIUM"
+                if station_utilization_pct > 50
+                else "🟢 LOW"
+            )
 
-            🎯 **Features Available:**
-            - Click arrows to expand/collapse test case groups
-            - Use column headers to sort and filter data
-            - Hover over cells for detailed information
+            # Calculate top performing metrics for summary cards
+            top_station_id = "N/A"
+            top_station_count = 0
+            top_test_case = "N/A"
+            top_test_case_count = 0
+            top_model = "N/A"
+            top_model_count = 0
+
+            # Find top Station ID from device_failure_counts
+            if device_failure_counts:
+                top_station_id = max(
+                    device_failure_counts, key=device_failure_counts.get
+                )
+                top_station_count = device_failure_counts[top_station_id]
+
+            # Find top Test Case and Model from pivot_result
+            if not pivot_result.empty and "result_FAIL" in pivot_result.columns:
+                try:
+                    # Group by test case and sum across all models and stations
+                    test_case_counts = (
+                        pivot_result.groupby("result_FAIL")
+                        .sum(numeric_only=True)
+                        .sum(axis=1)
+                    )
+                    if not test_case_counts.empty:
+                        top_test_case = test_case_counts.idxmax()
+                        top_test_case_count = int(test_case_counts.max())
+                except Exception as e:
+                    logger.warning(f"Error calculating top test case: {e}")
+
+                # Group by model and sum across all test cases and stations
+                if "Model" in pivot_result.columns:
+                    try:
+                        model_counts = (
+                            pivot_result.groupby("Model")
+                            .sum(numeric_only=True)
+                            .sum(axis=1)
+                        )
+                        if not model_counts.empty:
+                            top_model = model_counts.idxmax()
+                            top_model_count = int(model_counts.max())
+                    except Exception as e:
+                        logger.warning(f"Error calculating top model: {e}")
+
+            # HTML escape function for dynamic content
+            import html
+
+            # Create compact summary table as HTML for side-by-side layout
+            summary_table_html = f"""
+            <div style="background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 15px; height: fit-content;">
+                <h4 style="color: #667eea; margin: 0 0 12px 0; font-size: 16px; font-weight: 600;">📊 Analysis Summary</h4>
+                <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                    <tr>
+                        <td style="padding: 6px 8px; border-bottom: 1px solid rgba(107, 99, 246, 0.2); font-weight: 600; color: #667eea;">Total Failures:</td>
+                        <td style="padding: 6px 8px; border-bottom: 1px solid rgba(107, 99, 246, 0.2); font-weight: bold; color: {'#dc3545' if '🔴' in failure_status else '#ffc107' if '🟡' in failure_status else '#28a745'};">{total_device_failures:,}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 8px; border-bottom: 1px solid rgba(107, 99, 246, 0.2); font-weight: 600; color: #667eea;">Failure Types:</td>
+                        <td style="padding: 6px 8px; border-bottom: 1px solid rgba(107, 99, 246, 0.2);">{pivot_result.shape[0]}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 8px; border-bottom: 1px solid rgba(107, 99, 246, 0.2); font-weight: 600; color: #667eea;">Stations:</td>
+                        <td style="padding: 6px 8px; border-bottom: 1px solid rgba(107, 99, 246, 0.2);">{len(device_failure_counts)}/24 ({station_utilization_pct}%)</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 8px; font-weight: 600; color: #667eea;">Method:</td>
+                        <td style="padding: 6px 8px; font-size: 12px;">{"Pure Failures" if "Pure" in failure_counting_method else "Comprehensive"}</td>
+                    </tr>
+                </table>
+            </div>
             """
 
-            return status_message, iframe_html, gr.Row(visible=True)
+            # Create compact summary cards - smaller and in a single row
+            summary_cards_html = f"""
+            <div style="display: flex; gap: 12px; flex: 1;">
+                <!-- Top Station Card -->
+                <div style="flex: 1; min-width: 180px; background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); border-radius: 8px; padding: 12px; color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <div style="display: flex; align-items: center; margin-bottom: 6px;">
+                        <span style="font-size: 18px; margin-right: 6px;">🏭</span>
+                        <h4 style="margin: 0; font-size: 13px; font-weight: 600;">Top Station</h4>
+                    </div>
+                    <div style="font-size: 20px; font-weight: bold; margin-bottom: 2px;">{top_station_count:,}</div>
+                    <div style="font-size: 11px; opacity: 0.9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{html.escape(str(top_station_id))}">{html.escape(str(top_station_id))}</div>
+                </div>
+
+                <!-- Top Test Case Card -->
+                <div style="flex: 1; min-width: 180px; background: linear-gradient(135deg, #feca57 0%, #ff9ff3 100%); border-radius: 8px; padding: 12px; color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <div style="display: flex; align-items: center; margin-bottom: 6px;">
+                        <span style="font-size: 18px; margin-right: 6px;">🔬</span>
+                        <h4 style="margin: 0; font-size: 13px; font-weight: 600;">Top Test Case</h4>
+                    </div>
+                    <div style="font-size: 20px; font-weight: bold; margin-bottom: 2px;">{top_test_case_count:,}</div>
+                    <div style="font-size: 11px; opacity: 0.9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{html.escape(str(top_test_case))}">{html.escape(str(top_test_case))}</div>
+                </div>
+
+                <!-- Top Model Card -->
+                <div style="flex: 1; min-width: 180px; background: linear-gradient(135deg, #5f27cd 0%, #341f97 100%); border-radius: 8px; padding: 12px; color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <div style="display: flex; align-items: center; margin-bottom: 6px;">
+                        <span style="font-size: 18px; margin-right: 6px;">📱</span>
+                        <h4 style="margin: 0; font-size: 13px; font-weight: 600;">Top Model</h4>
+                    </div>
+                    <div style="font-size: 20px; font-weight: bold; margin-bottom: 2px;">{top_model_count:,}</div>
+                    <div style="font-size: 11px; opacity: 0.9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{html.escape(str(top_model))}">{html.escape(str(top_model))}</div>
+                </div>
+            </div>
+            """
+
+            # Minimal status message
+            status_message = f"""✅ **Success!** Interactive pivot table generated with **{failure_counting_method}** method
+
+💡 **Tip:** <a href="http://127.0.0.1:5001" target="_blank" style="color: #667eea; font-weight: bold;">Open in New Tab</a> for full analysis controls
+"""
+
+            # Create horizontal layout with cards left, table right, then iframe below
+            combined_html = f"""
+            <div style="margin-bottom: 15px;">
+                <div style="display: flex; gap: 20px; margin-bottom: 15px; align-items: flex-start;">
+                    <div style="flex: 2; min-width: 600px;">
+                        <h3 style="color: #333; margin: 0 0 12px 0; font-size: 16px;">🎯 Top Performance Metrics</h3>
+                        {summary_cards_html}
+                    </div>
+                    <div style="flex: 1; min-width: 250px; max-width: 320px;">
+                        {summary_table_html}
+                    </div>
+                </div>
+            </div>
+            {iframe_html}
+            """
+
+            return status_message, combined_html, gr.Row(visible=False)
 
         except Exception as e:
             logger.error(f"Error generating interactive pivot: {e}")
@@ -1222,21 +1591,10 @@ with gr.Blocks(
             </p>
             """
 
-            status_message = f"""
-            ✅ **Success!** Interactive error analysis table generated successfully
+            status_message = f"""✅ **Success!** Interactive error analysis table generated successfully
 
-            📊 **Data Summary:**
-            - **Rows:** {pivot_result.shape[0]} error combinations (Model → Error Code → Error Message)
-            - **Columns:** {pivot_result.shape[1]} stations/fields
-            - **Filter Applied:** {operator_filter if operator_filter != "All" else "None (showing all operators)"}
-
-            🎯 **3-Level Hierarchy Features:**
-            - 📁 Model groups (top level)
-            - 📂 Error Code subgroups (middle level)
-            - └─ Error Message details (bottom level)
-            - RED highlighting for highest error counts per group
-            - YELLOW highlighting for highest counts per error message
-            """
+📊 **Summary:** {pivot_result.shape[0]} error combinations across {pivot_result.shape[1]} stations/fields
+💡 **Tip:** <a href="http://127.0.0.1:8051" target="_blank" style="color: #667eea; font-weight: bold;">Open in New Tab</a> for better navigation"""
 
             return status_message, iframe_html, gr.Row(visible=True)
 
@@ -1389,7 +1747,7 @@ with gr.Blocks(
 
     generate_interactive_pivot_button.click(
         generate_interactive_pivot_wrapped,
-        inputs=[df, interactive_operator_filter],
+        inputs=[df, interactive_operator_filter, failure_counting_method],
         outputs=[interactive_pivot_status, interactive_pivot_iframe, view_selector_row],
     )
 

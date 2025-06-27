@@ -261,8 +261,7 @@ def create_excel_style_failure_pivot(
     - Rows: result_FAIL, Model (hierarchical)
     - Values: Count of result_FAIL
 
-    This function handles comma-separated result_FAIL values by parsing and exploding them
-    into individual failure types before creating the pivot table.
+    This function explodes comma-separated result_FAIL values to show detailed test case analysis.
 
     Args:
         df: Input DataFrame with columns: Operator, Station ID, Model, result_FAIL
@@ -292,16 +291,13 @@ def create_excel_style_failure_pivot(
             f"Operator filter: {operator_filter}, DataFrame shape after filter: {filtered_df.shape}"
         )
 
-        # Step 2: Remove empty result_FAIL entries
-        filtered_df = filtered_df[filtered_df["result_FAIL"].notna()]
-        filtered_df = filtered_df[filtered_df["result_FAIL"].str.strip() != ""]
-
+        # Step 2: Data is already filtered for populated result_FAIL in gradio_app.py
         logger.info(
-            f"DataFrame shape after removing empty result_FAIL: {filtered_df.shape}"
+            f"DataFrame shape (already filtered for populated result_FAIL): {filtered_df.shape}"
         )
 
-        # Step 3: Explode comma-separated result_FAIL values
-        # This is the key enhancement - parsing comma-separated failure types
+        # Step 3: Explode comma-separated result_FAIL values for detailed test case analysis
+        # This creates the detailed breakdown showing individual test case failures
         filtered_df = filtered_df.copy()
         filtered_df["result_FAIL"] = filtered_df["result_FAIL"].str.split(",")
         exploded_df = filtered_df.explode("result_FAIL")
@@ -316,6 +312,7 @@ def create_excel_style_failure_pivot(
             aggfunc="count",  # Count occurrences
             fill_value=0,  # Fill missing with 0
         )
+        logger.info("Created detailed pivot with exploded test cases for analysis")
 
         # Step 5: Clean up column names and reset index for Gradio compatibility
         pivot_result.columns.name = None  # Remove 'Station ID' header

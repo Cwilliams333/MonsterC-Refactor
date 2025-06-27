@@ -28,6 +28,9 @@ from common.logging_config import get_logger  # noqa: E402
 # Configure logging
 logger = get_logger(__name__)
 
+# Global variable to store device failure counts for accurate totals
+device_failure_counts = {}
+
 # Initialize Dash app with custom CSS
 app = dash.Dash(__name__)
 
@@ -407,11 +410,34 @@ def transform_pivot_to_tree_data(pivot_df: pd.DataFrame) -> List[Dict[str, Any]]
     total_row = {"hierarchy": "📊 TOTAL FAILURES", "isGroup": True, "isTotal": True}
     station_totals = {}
     grand_total_sum = 0
+
+    global device_failure_counts
+
+    # Debug: Log available device counts vs pivot columns
+    logger.info(
+        f"Available device counts: {list(device_failure_counts.keys()) if device_failure_counts else 'None'}"
+    )
+    logger.info(f"Pivot station columns: {station_cols}")
+
     for col in station_cols:
-        total_val = pivot_df[col].sum()
+        # Use device failure counts if available, otherwise fall back to exploded counts
+        if device_failure_counts and col in device_failure_counts:
+            total_val = device_failure_counts[col]
+            logger.info(f"✅ Using device count for {col}: {total_val}")
+        else:
+            total_val = pivot_df[col].sum()
+            logger.warning(
+                f"⚠️ Using exploded count for {col}: {total_val} (device counts not available)"
+            )
+
         total_row[col] = total_val
         station_totals[col] = total_val
         grand_total_sum += total_val
+
+    logger.info(f"🎯 Grand total calculated: {grand_total_sum}")
+    logger.info(
+        f"🎯 Expected device total: {sum(device_failure_counts.values()) if device_failure_counts else 'N/A'}"
+    )
 
     # Add Grand Total column (sum of all stations horizontally)
     total_row["Grand_Total"] = grand_total_sum
@@ -1336,9 +1362,22 @@ def load_data_from_file(data_file_path: str) -> Optional[pd.DataFrame]:
 )
 def load_initial_data(_):
     """Load initial data if a file path was provided as command line argument."""
+    global device_failure_counts
     if len(sys.argv) > 1:
         data_file_path = sys.argv[1]
         logger.info(f"Loading initial data from: {data_file_path}")
+
+        # Load device failure counts for accurate totals
+        device_counts_file = data_file_path.replace(
+            "monsterc_pivot_data.json", "monsterc_device_counts.json"
+        )
+        try:
+            with open(device_counts_file, "r") as f:
+                device_failure_counts = json.load(f)
+                logger.info(f"Loaded device failure counts: {device_failure_counts}")
+        except FileNotFoundError:
+            logger.warning(f"Device counts file not found: {device_counts_file}")
+            device_failure_counts = {}
 
         df = load_data_from_file(data_file_path)
         if df is not None:
@@ -1447,7 +1486,7 @@ def create_grouped_column_definitions(
                 "valueFormatter": {
                     "function": "params.value === 0 ? '' : params.value"  # Zen zeros
                 },
-                "width": 80,
+                "width": 100,
             }
         )
 
