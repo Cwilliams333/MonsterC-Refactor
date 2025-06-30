@@ -154,13 +154,14 @@ class TestCreateSummary:
         """Test creating basic summary from DataFrame."""
         summary = create_summary(repeated_failures_result_df)
         assert isinstance(summary, str)
-        assert "Found 3 instances of repeated failures" in summary
+        # Check for HTML content instead of markdown
+        assert ">3</span> instances of repeated failures" in summary
         assert "iPhone14ProMax" in summary
         assert "6A-Display Fail" in summary
-        assert (
-            "| Model | Model Code | Station ID | Test Case | TC Count | IMEI Count |"
-            in summary
-        )
+        # Check for HTML table headers
+        assert "Model</div>" in summary
+        assert "Code</div>" in summary
+        assert "Station</div>" in summary
 
     def test_create_summary_empty(self):
         """Test creating summary from empty DataFrame."""

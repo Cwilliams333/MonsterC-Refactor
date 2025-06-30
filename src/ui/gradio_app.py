@@ -43,13 +43,11 @@ from services.imei_extractor_service import process_data
 from services.pivot_service import (
     analyze_top_models,
     analyze_top_test_cases,
-    apply_failure_highlighting,
     apply_filters,
     create_excel_style_error_pivot,
     create_excel_style_failure_pivot,
     create_pivot_table,
     find_top_failing_stations,
-    generate_pivot_table_filtered,
 )
 from services.repeated_failures_service import (
     analyze_repeated_failures,
@@ -75,6 +73,234 @@ def cleanup_processes():
 
 
 atexit.register(cleanup_processes)
+
+
+def create_visual_summary_dashboard(summary_text):
+    """
+    Convert plain text summary into a beautiful visual dashboard with gradient cards and charts.
+
+    Args:
+        summary_text: Plain text summary from analysis_service
+
+    Returns:
+        HTML string with visual dashboard
+    """
+    if not summary_text or summary_text.strip() == "":
+        return """
+        <div style="text-align: center; padding: 40px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; color: white;">
+            <h2 style="margin: 0; font-size: 28px;">📊 Welcome to MonsterC Analysis</h2>
+            <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Upload a CSV file and click 'Perform Analysis' to begin</p>
+        </div>
+        """
+
+    # Parse summary text
+    lines = summary_text.strip().split("\n")
+    data = {}
+    for line in lines:
+        if ":" in line:
+            key, value = line.split(":", 1)
+            data[key.strip()] = value.strip()
+
+    # Extract numeric values
+    total_tests = int(data.get("Total Tests", "0").replace(",", ""))
+    valid_tests = int(data.get("Valid Tests", "0").replace(",", ""))
+    success_tests = int(data.get("Success", "0").replace(",", ""))
+    failures = int(data.get("Failures", "0").replace(",", ""))
+    errors = int(data.get("Errors", "0").replace(",", ""))
+    pass_rate = float(data.get("Pass Rate", "0").replace("%", ""))
+
+    # Calculate additional metrics
+    fail_rate = 100 - pass_rate if pass_rate > 0 else 0
+    error_rate = (errors / valid_tests * 100) if valid_tests > 0 else 0
+    invalid_tests = total_tests - valid_tests
+    success_pct = (success_tests / valid_tests * 100) if valid_tests > 0 else 0
+    test_coverage = (valid_tests / total_tests * 100) if total_tests > 0 else 0
+    avg_tests_per_day = total_tests // 30 if total_tests > 0 else 0
+    health_score = (
+        min(100, int(pass_rate + (100 - error_rate) / 2)) if valid_tests > 0 else 0
+    )
+
+    # Determine status colors and icons
+    pass_color = (
+        "#10b981" if pass_rate >= 95 else "#f59e0b" if pass_rate >= 85 else "#ef4444"
+    )
+    pass_icon = "✅" if pass_rate >= 95 else "⚠️" if pass_rate >= 85 else "❌"
+
+    # Create donut chart data for mini visualization
+    chart_data = f"{pass_rate},{fail_rate},{error_rate}"
+
+    html = f"""
+    <div style="padding: 20px;">
+        <!-- Header Section -->
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 25px; border-radius: 15px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1);">
+            <h2 style="color: white; margin: 0 0 10px 0; font-size: 24px; text-align: center;">
+                🎯 Test Analysis Dashboard
+            </h2>
+            <p style="color: white; margin: 0; text-align: center; opacity: 0.9; font-size: 14px;">
+                {data.get('Analysis Time', 'N/A')} | {data.get('Data Range', 'N/A')}
+            </p>
+        </div>
+
+        <!-- Key Metrics Cards -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 25px;">
+
+            <!-- Total Tests Card -->
+            <div style="background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%); padding: 20px; border-radius: 12px; color: white; box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3); transition: transform 0.3s ease;">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div>
+                        <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.9;">Total Tests</p>
+                        <h3 style="margin: 0; font-size: 32px; font-weight: bold;">{total_tests:,}</h3>
+                        <p style="margin: 8px 0 0 0; font-size: 13px; opacity: 0.8;">
+                            Valid: {valid_tests:,} | Invalid: {invalid_tests:,}
+                        </p>
+                    </div>
+                    <div style="font-size: 48px; opacity: 0.3;">📋</div>
+                </div>
+            </div>
+
+            <!-- Pass Rate Card -->
+            <div style="background: linear-gradient(135deg, {pass_color} 0%, {pass_color}dd 100%); padding: 20px; border-radius: 12px; color: white; box-shadow: 0 8px 20px rgba(0,0,0,0.15); transition: transform 0.3s ease;">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div>
+                        <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.9;">Pass Rate</p>
+                        <h3 style="margin: 0; font-size: 32px; font-weight: bold;">{pass_rate:.1f}%</h3>
+                        <div style="margin-top: 10px; background: rgba(255,255,255,0.2); border-radius: 10px; height: 8px; overflow: hidden;">
+                            <div style="height: 100%; width: {pass_rate}%; background: rgba(255,255,255,0.8); border-radius: 10px; transition: width 1s ease;"></div>
+                        </div>
+                    </div>
+                    <div style="font-size: 48px; opacity: 0.3;">{pass_icon}</div>
+                </div>
+            </div>
+
+            <!-- Success Tests Card -->
+            <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 20px; border-radius: 12px; color: white; box-shadow: 0 8px 20px rgba(16, 185, 129, 0.3); transition: transform 0.3s ease;">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div>
+                        <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.9;">Successful Tests</p>
+                        <h3 style="margin: 0; font-size: 32px; font-weight: bold;">{success_tests:,}</h3>
+                        <p style="margin: 8px 0 0 0; font-size: 13px; opacity: 0.8;">
+                            {success_pct:.1f}% of valid tests
+                        </p>
+                    </div>
+                    <div style="font-size: 48px; opacity: 0.3;">✅</div>
+                </div>
+            </div>
+
+            <!-- Failures Card -->
+            <div style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); padding: 20px; border-radius: 12px; color: white; box-shadow: 0 8px 20px rgba(239, 68, 68, 0.3); transition: transform 0.3s ease;">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div>
+                        <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.9;">Failed Tests</p>
+                        <h3 style="margin: 0; font-size: 32px; font-weight: bold;">{failures:,}</h3>
+                        <p style="margin: 8px 0 0 0; font-size: 13px; opacity: 0.8;">
+                            {fail_rate:.1f}% failure rate
+                        </p>
+                    </div>
+                    <div style="font-size: 48px; opacity: 0.3;">❌</div>
+                </div>
+            </div>
+
+            <!-- Errors Card -->
+            <div style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); padding: 20px; border-radius: 12px; color: white; box-shadow: 0 8px 20px rgba(245, 158, 11, 0.3); transition: transform 0.3s ease;">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div>
+                        <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.9;">Error Tests</p>
+                        <h3 style="margin: 0; font-size: 32px; font-weight: bold;">{errors:,}</h3>
+                        <p style="margin: 8px 0 0 0; font-size: 13px; opacity: 0.8;">
+                            {error_rate:.1f}% error rate
+                        </p>
+                    </div>
+                    <div style="font-size: 48px; opacity: 0.3;">⚠️</div>
+                </div>
+            </div>
+
+            <!-- Health Score Card -->
+            <div style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); padding: 20px; border-radius: 12px; color: white; box-shadow: 0 8px 20px rgba(139, 92, 246, 0.3); transition: transform 0.3s ease;">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div>
+                        <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.9;">Health Score</p>
+                        <h3 style="margin: 0; font-size: 32px; font-weight: bold;">{health_score}/100</h3>
+                        <div style="margin-top: 10px;">
+                            <div style="display: flex; gap: 3px;">
+                                {"".join(['<div style="width: 20px; height: 6px; background: rgba(255,255,255,0.8); border-radius: 3px;"></div>' if i < health_score//20 else '<div style="width: 20px; height: 6px; background: rgba(255,255,255,0.2); border-radius: 3px;"></div>' for i in range(5)])}
+                            </div>
+                        </div>
+                    </div>
+                    <div style="font-size: 48px; opacity: 0.3;">💯</div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Quick Insights Section -->
+        <div style="background: rgba(107, 99, 246, 0.05); padding: 20px; border-radius: 12px; border: 1px solid rgba(107, 99, 246, 0.2); margin-bottom: 20px;">
+            <h3 style="color: #667eea; margin: 0 0 15px 0; font-size: 18px;">🔍 Quick Insights</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                <div style="text-align: center;">
+                    <p style="margin: 0; color: #999; font-size: 13px;">Test Coverage</p>
+                    <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: #10b981;">{test_coverage:.1f}%</p>
+                </div>
+                <div style="text-align: center;">
+                    <p style="margin: 0; color: #999; font-size: 13px;">Avg Tests/Day</p>
+                    <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: #3b82f6;">{avg_tests_per_day:,}</p>
+                </div>
+                <div style="text-align: center;">
+                    <p style="margin: 0; color: #999; font-size: 13px;">Quality Trend</p>
+                    <p style="margin: 5px 0 0 0; font-size: 20px; font-weight: bold; color: {"#10b981" if pass_rate >= 90 else "#f59e0b" if pass_rate >= 80 else "#ef4444"};">
+                        {"📈 Improving" if pass_rate >= 90 else "⚡ Stable" if pass_rate >= 80 else "📉 Needs Attention"}
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analysis Footer -->
+        <div style="text-align: center; color: #666; font-size: 12px;">
+            <p style="margin: 0;">💡 Tip: Explore the charts below for detailed failure analysis by station, model, and test case</p>
+        </div>
+    </div>
+
+    <style>
+        @keyframes fadeIn {{
+            from {{ opacity: 0; transform: translateY(20px); }}
+            to {{ opacity: 1; transform: translateY(0); }}
+        }}
+
+        #visual-summary-dashboard > div > div {{
+            animation: fadeIn 0.6s ease-out forwards;
+        }}
+
+        #visual-summary-dashboard > div > div:nth-child(2) > div {{
+            animation: fadeIn 0.8s ease-out forwards;
+        }}
+
+        #visual-summary-dashboard > div > div:nth-child(2) > div:nth-child(2) {{
+            animation-delay: 0.1s;
+        }}
+
+        #visual-summary-dashboard > div > div:nth-child(2) > div:nth-child(3) {{
+            animation-delay: 0.2s;
+        }}
+
+        #visual-summary-dashboard > div > div:nth-child(2) > div:nth-child(4) {{
+            animation-delay: 0.3s;
+        }}
+
+        #visual-summary-dashboard > div > div:nth-child(2) > div:nth-child(5) {{
+            animation-delay: 0.4s;
+        }}
+
+        #visual-summary-dashboard > div > div:nth-child(2) > div:nth-child(6) {{
+            animation-delay: 0.5s;
+        }}
+
+        #visual-summary-dashboard > div > div > div:hover {{
+            transform: translateY(-3px);
+            box-shadow: 0 12px 30px rgba(0,0,0,0.2) !important;
+        }}
+    </style>
+    """
+
+    return html
 
 
 # Gradio UI Definition
@@ -228,9 +454,23 @@ with gr.Blocks(
     with gr.Tabs():
         with gr.TabItem("Analysis Results"):
             with gr.Row():
-                analyze_button = gr.Button("Perform Analysis")
+                analyze_button = gr.Button("Perform Analysis", variant="primary")
+
+            # Visual summary dashboard section
             with gr.Row():
-                analysis_summary = gr.Textbox(label="Summary", lines=6)
+                analysis_summary = gr.HTML(
+                    value="""
+                    <div style="text-align: center; padding: 40px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; color: white;">
+                        <h2 style="margin: 0; font-size: 28px;">📊 Welcome to MonsterC Analysis</h2>
+                        <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Upload a CSV file and click 'Perform Analysis' to begin</p>
+                    </div>
+                    """,
+                    elem_id="visual-summary-dashboard",
+                )
+
+            # Hidden textbox to store raw summary data for processing
+            analysis_summary_data = gr.Textbox(visible=False)
+
             with gr.Row():
                 overall_status_chart = gr.Plot(label="Overall Status Distribution")
                 stations_chart = gr.Plot(label="Top Failing Stations")
@@ -266,24 +506,27 @@ with gr.Blocks(
                 operator_filter = gr.Dropdown(
                     label="Operator",
                     choices=["All"],
-                    value="All",
+                    value=["All"],
                     interactive=True,
+                    multiselect=True,
                     scale=1,
                     visible=False,  # Initially hidden
                 )
                 source_filter = gr.Dropdown(
                     label="Source",
                     choices=["All"],
-                    value="All",
+                    value=["All"],
                     interactive=True,
+                    multiselect=True,
                     scale=1,
                     visible=False,  # Initially hidden
                 )
                 station_id_filter = gr.Dropdown(
                     label="Station ID",
                     choices=["All"],
-                    value="All",
+                    value=["All"],
                     interactive=True,
+                    multiselect=True,
                     scale=1,
                     visible=False,  # Initially hidden
                 )
@@ -291,10 +534,16 @@ with gr.Blocks(
             with gr.Row():
                 custom_filter_button = gr.Button("Filter Data")
 
-            # Rest of the components remain the same
+            # Beautiful floating card summary with HTML component
             with gr.Row():
-                custom_filter_summary = gr.Markdown(
-                    label="Filtered Summary", value="", elem_classes=["custom-markdown"]
+                custom_filter_summary = gr.HTML(
+                    value="""
+                    <div style="text-align: center; padding: 40px; background: linear-gradient(135deg, #06beb6 0%, #48b1bf 100%); border-radius: 15px; color: white;">
+                        <h2 style="margin: 0; font-size: 28px;">🔍 Custom Data Filtering</h2>
+                        <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Select filters above and click 'Filter Data' to analyze</p>
+                    </div>
+                    """,
+                    elem_id="custom_filter_summary",
                 )
             with gr.Row():
                 with gr.Column(scale=1):
@@ -310,67 +559,6 @@ with gr.Blocks(
                     custom_filter_df2 = gr.Dataframe(label="Top 5 Failing Test Cases")
                 with gr.Column(scale=1):
                     custom_filter_df3 = gr.Dataframe(label="Top 5 Errors")
-
-        with gr.TabItem("Pivot Table Builder"):
-            with gr.Row():
-                # Adding filter dropdowns for filtering before creating the pivot table with multiselect enabled
-                filter_operator = gr.Dropdown(
-                    label="Filter by Operator",
-                    choices=["All"],
-                    value="All",
-                    multiselect=True,
-                    interactive=True,
-                )
-                filter_station_id = gr.Dropdown(
-                    label="Filter by Station ID",
-                    choices=["All"],
-                    value="All",
-                    multiselect=True,
-                    interactive=True,
-                )
-                filter_model = gr.Dropdown(
-                    label="Filter by Model",
-                    choices=["All"],
-                    value="All",
-                    multiselect=True,
-                    interactive=True,
-                )
-
-            # Adding pivot table options after the filters
-            with gr.Row():
-                # Pivot table configuration
-                pivot_rows = gr.Dropdown(
-                    label="Select Row Fields (required)",
-                    choices=[],
-                    multiselect=True,
-                    interactive=True,
-                )
-                pivot_columns = gr.Dropdown(
-                    label="Select Column Fields (optional)",
-                    choices=[],
-                    multiselect=True,
-                    interactive=True,
-                )
-                pivot_values = gr.Dropdown(
-                    label="Select Values Field (required)", choices=[], interactive=True
-                )
-                pivot_aggfunc = gr.Dropdown(
-                    label="Aggregation Function",
-                    choices=["count", "sum", "mean", "median", "max", "min"],
-                    value="count",
-                    interactive=True,
-                )
-
-            with gr.Row():
-                generate_pivot_button = gr.Button("Generate Pivot Table")
-                catch_failures_button = gr.Button(
-                    "🤖 Automation High Failures", variant="primary"
-                )
-
-            with gr.Row():
-                pivot_table_output = gr.Dataframe(
-                    label="Pivot Table Results", interactive=False
-                )
 
         with gr.TabItem("Repeated Failures Analysis"):
             with gr.Row():
@@ -394,8 +582,14 @@ with gr.Blocks(
                 )
 
             with gr.Row():
-                failures_summary = gr.Markdown(
-                    value="", label="Repeated Failures Summary"
+                failures_summary = gr.HTML(
+                    value="""
+                    <div style="text-align: center; padding: 40px; background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); border-radius: 15px; color: white;">
+                        <h2 style="margin: 0; font-size: 28px;">🔍 Repeated Failures Analysis</h2>
+                        <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Click 'Analyze Repeated Failures' to begin</p>
+                    </div>
+                    """,
+                    label="Repeated Failures Summary",
                 )
             with gr.Row():
                 failures_chart = gr.Plot(label="Repeated Failures Chart")
@@ -660,7 +854,7 @@ with gr.Blocks(
     # Event Handlers - Using decorated functions for error handling
 
     @capture_exceptions(
-        user_message="Failed to load and update data", return_value=[None] * 22
+        user_message="Failed to load and update data", return_value=[None] * 16
     )
     def load_and_update_wrapped(file):
         """Load CSV file and update all filter dropdowns."""
@@ -671,29 +865,24 @@ with gr.Blocks(
 
         if df is None or df.empty:
             # Return empty values for all outputs - need to return proper dropdown updates
-            empty_dropdown = gr.Dropdown(choices=["All"], value="All")
+            empty_dropdown = gr.update(choices=["All"], value="All")
+            empty_dropdown_multi = gr.update(choices=["All"], value=["All"])
             return [
                 None,  # df
                 empty_dropdown,  # source
                 empty_dropdown,  # station_id
                 empty_dropdown,  # model
-                gr.Dropdown(choices=[]),  # result_fail
+                gr.update(choices=[]),  # result_fail
                 empty_dropdown,  # advanced_operator
                 empty_dropdown,  # advanced_model
                 empty_dropdown,  # advanced_manufacturer
                 empty_dropdown,  # advanced_source
                 empty_dropdown,  # advanced_overall_status
                 empty_dropdown,  # advanced_station_id
-                gr.Dropdown(choices=[]),  # advanced_result_fail
-                gr.Dropdown(choices=[]),  # pivot_rows
-                gr.Dropdown(choices=[]),  # pivot_columns
-                gr.Dropdown(choices=[]),  # pivot_values
-                empty_dropdown,  # filter_operator
-                empty_dropdown,  # filter_station_id
-                empty_dropdown,  # filter_model
-                empty_dropdown,  # operator_filter
-                empty_dropdown,  # source_filter
-                empty_dropdown,  # station_id_filter
+                gr.update(choices=[]),  # advanced_result_fail
+                empty_dropdown_multi,  # operator_filter
+                empty_dropdown_multi,  # source_filter
+                empty_dropdown_multi,  # station_id_filter
                 empty_dropdown,  # interactive_operator_filter
             ]
 
@@ -737,48 +926,37 @@ with gr.Blocks(
             else ["All"]
         )
 
-        # Get column names for pivot table
-        columns = df.columns.tolist()
-
-        # Return all the updated values (22 total)
-        # For dropdowns, we need to return gr.Dropdown.update(choices=...) to update the choices
+        # Return all the updated values (16 total after removing pivot table components)
+        # For dropdowns, we need to return gr.update(choices=...) to update the choices
         return [
             df,  # 1. The loaded dataframe
-            gr.Dropdown(choices=sources, value="All"),  # 2. IMEI Extractor: Source
-            gr.Dropdown(
+            gr.update(choices=sources, value="All"),  # 2. IMEI Extractor: Source
+            gr.update(
                 choices=station_ids, value="All"
             ),  # 3. IMEI Extractor: Station ID
-            gr.Dropdown(choices=models, value="All"),  # 4. IMEI Extractor: Model(s)
-            gr.Dropdown(choices=result_fails),  # 5. IMEI Extractor: Result Fail
-            gr.Dropdown(choices=operators, value="All"),  # 6. Advanced Filter: Operator
-            gr.Dropdown(choices=models, value="All"),  # 7. Advanced Filter: Model
-            gr.Dropdown(
+            gr.update(choices=models, value="All"),  # 4. IMEI Extractor: Model(s)
+            gr.update(choices=result_fails),  # 5. IMEI Extractor: Result Fail
+            gr.update(choices=operators, value="All"),  # 6. Advanced Filter: Operator
+            gr.update(choices=models, value="All"),  # 7. Advanced Filter: Model
+            gr.update(
                 choices=manufacturers, value="All"
             ),  # 8. Advanced Filter: Manufacturer
-            gr.Dropdown(choices=sources, value="All"),  # 9. Advanced Filter: Source
-            gr.Dropdown(
+            gr.update(choices=sources, value="All"),  # 9. Advanced Filter: Source
+            gr.update(
                 choices=overall_statuses, value="All"
             ),  # 10. Advanced Filter: Overall Status
-            gr.Dropdown(
+            gr.update(
                 choices=station_ids, value="All"
             ),  # 11. Advanced Filter: Station ID
-            gr.Dropdown(choices=result_fails),  # 12. Advanced Filter: Result Fail
-            gr.Dropdown(choices=columns),  # 13. Pivot Table: Rows
-            gr.Dropdown(choices=columns),  # 14. Pivot Table: Columns
-            gr.Dropdown(choices=columns),  # 15. Pivot Table: Values
-            gr.Dropdown(choices=operators, value="All"),  # 16. Pivot Filter: Operator
-            gr.Dropdown(
-                choices=station_ids, value="All"
-            ),  # 17. Pivot Filter: Station ID
-            gr.Dropdown(choices=models, value="All"),  # 18. Pivot Filter: Model
-            gr.Dropdown(choices=operators, value="All"),  # 19. Custom Filter: Operator
-            gr.Dropdown(choices=sources, value="All"),  # 20. Custom Filter: Source
-            gr.Dropdown(
-                choices=station_ids, value="All"
-            ),  # 21. Custom Filter: Station ID
-            gr.Dropdown(
+            gr.update(choices=result_fails),  # 12. Advanced Filter: Result Fail
+            gr.update(choices=operators, value=["All"]),  # 13. Custom Filter: Operator
+            gr.update(choices=sources, value=["All"]),  # 14. Custom Filter: Source
+            gr.update(
+                choices=station_ids, value=["All"]
+            ),  # 15. Custom Filter: Station ID
+            gr.update(
                 choices=operators, value="All"
-            ),  # 22. Interactive Pivot: Operator
+            ),  # 16. Interactive Pivot: Operator
         ]
 
     @capture_exceptions(user_message="Analysis failed", return_value=None)
@@ -787,7 +965,16 @@ with gr.Blocks(
         logger.info("Performing CSV analysis")
         # Convert file to DataFrame before passing to service
         df = load_data(csv_file)
-        return perform_analysis(df)
+        results = perform_analysis(df)
+
+        # If analysis succeeded, create visual dashboard from summary text
+        if results and len(results) > 0 and results[0]:
+            summary_text = results[0]
+            visual_html = create_visual_summary_dashboard(summary_text)
+            # Return visual HTML as first element, raw summary as hidden element, then rest
+            return (visual_html, summary_text) + results[1:]
+
+        return results
 
     @capture_exceptions(user_message="Filter update failed", return_value=None)
     def update_filter_visibility_wrapped(filter_type):
@@ -861,72 +1048,6 @@ with gr.Blocks(
             station_id,
             result_fail,
         )
-
-    @capture_exceptions(user_message="Pivot table generation failed", return_value=None)
-    def generate_pivot_table_filtered_wrapped(
-        df, rows, columns, values, aggfunc, operator, station_id, model
-    ):
-        """Wrapper for generate_pivot_table_filtered with error handling."""
-        logger.info("Generating filtered pivot table")
-        return generate_pivot_table_filtered(
-            df, rows, columns, values, aggfunc, operator, station_id, model
-        )
-
-    @capture_exceptions(user_message="High failures analysis failed", return_value=None)
-    def catch_high_failures_wrapped(df, operator_filter):
-        """Wrapper for automation-only high failure detection with ERROR + result_FAIL logic."""
-        logger.info("Generating automation-only high failure analysis")
-
-        # Check if dataframe is loaded
-        if df is None or df.empty:
-            logger.warning("No data loaded. Please upload a CSV file first.")
-            return pd.DataFrame({"Message": ["Please upload a CSV file first"]})
-
-        logger.info(
-            f"Input DataFrame shape: {df.shape}, Operator filter: {operator_filter}"
-        )
-
-        # Define automation operators based on business logic analysis
-        automation_operators = [
-            "STN251_RED(id:10089)",  # STN1_RED
-            "STN252_RED(id:10090)",  # STN2_RED
-            "STN351_GRN(id:10380)",  # STN1_GREEN
-            "STN352_GRN(id:10381)",  # STN2_GREEN
-        ]
-
-        # Filter for automation operators only
-        automation_df = df[df["Operator"].isin(automation_operators)]
-        logger.info(
-            f"Filtered to automation operators only: {automation_df.shape[0]} records"
-        )
-
-        if automation_df.empty:
-            return pd.DataFrame({"Message": ["No automation operator data found"]})
-
-        # Apply business logic: Count FAILURE OR (ERROR with result_FAIL populated)
-        failure_conditions = (automation_df["Overall status"] == "FAILURE") | (
-            (automation_df["Overall status"] == "ERROR")
-            & (automation_df["result_FAIL"].notna())
-            & (automation_df["result_FAIL"].str.strip() != "")
-        )
-
-        automation_failures = automation_df[failure_conditions]
-        logger.info(
-            f"Found {len(automation_failures)} automation failures using FAILURE + ERROR with result_FAIL logic"
-        )
-
-        if automation_failures.empty:
-            return pd.DataFrame({"Message": ["No automation failures found"]})
-
-        # Create Excel-style pivot focused on automation failures only
-        pivot_result = create_excel_style_failure_pivot(automation_failures, None)
-
-        # Apply conditional formatting for high failure highlighting
-        if not pivot_result.empty and "Error" not in pivot_result.columns:
-            styled_result = apply_failure_highlighting(pivot_result)
-            return styled_result
-
-        return pivot_result
 
     # Global variable to hold the Dash subprocess
     dash_process = None
@@ -1629,12 +1750,6 @@ with gr.Blocks(
             advanced_overall_status_filter,
             advanced_station_id_filter,
             advanced_result_fail_filter,
-            pivot_rows,  # For Pivot Table Builder
-            pivot_columns,
-            pivot_values,
-            filter_operator,  # Pivot Table Filters
-            filter_station_id,
-            filter_model,
             operator_filter,
             source_filter,
             station_id_filter,
@@ -1647,6 +1762,7 @@ with gr.Blocks(
         inputs=[file_input],
         outputs=[
             analysis_summary,
+            analysis_summary_data,
             overall_status_chart,
             stations_chart,
             models_chart,
@@ -1657,10 +1773,42 @@ with gr.Blocks(
         ],
     )
 
+    @capture_exceptions(
+        user_message="Failed to update station dropdown",
+        return_value=gr.update(choices=["All"], value=["All"]),
+    )
+    def update_station_dropdown_based_on_operators(df, operators_selected):
+        """Update station ID dropdown based on selected operators."""
+        if df is None or df.empty:
+            return gr.update(choices=["All"], value=["All"])
+
+        # If "All" is selected or nothing is selected, show all stations
+        if (
+            not operators_selected
+            or operators_selected == ["All"]
+            or "All" in operators_selected
+        ):
+            station_ids = ["All"] + sorted(df["Station ID"].dropna().unique().tolist())
+        else:
+            # Filter dataframe by selected operators and get unique station IDs
+            filtered_df = df[df["Operator"].isin(operators_selected)]
+            station_ids = ["All"] + sorted(
+                filtered_df["Station ID"].dropna().unique().tolist()
+            )
+
+        return gr.update(choices=station_ids, value=["All"], multiselect=True)
+
     filter_type.change(
         update_filter_visibility_wrapped,
         inputs=[filter_type],
         outputs=[operator_filter, source_filter, station_id_filter],
+    )
+
+    # Add handler to update station IDs when operators are selected
+    operator_filter.change(
+        update_station_dropdown_based_on_operators,
+        inputs=[df, operator_filter],
+        outputs=[station_id_filter],
     )
 
     custom_filter_button.click(
@@ -1722,27 +1870,6 @@ with gr.Blocks(
             advanced_result_fail_filter,
         ],
         outputs=[filtered_data, filter_summary],
-    )
-
-    generate_pivot_button.click(
-        generate_pivot_table_filtered_wrapped,
-        inputs=[
-            df,
-            pivot_rows,
-            pivot_columns,
-            pivot_values,
-            pivot_aggfunc,
-            filter_operator,
-            filter_station_id,
-            filter_model,
-        ],
-        outputs=[pivot_table_output],
-    )
-
-    catch_failures_button.click(
-        catch_high_failures_wrapped,
-        inputs=[df, filter_operator],
-        outputs=[pivot_table_output],
     )
 
     generate_interactive_pivot_button.click(
