@@ -154,7 +154,7 @@ def create_visual_summary_dashboard(summary_text):
                             Valid: {valid_tests:,} | Invalid: {invalid_tests:,}
                         </p>
                     </div>
-                    <div style="font-size: 48px; opacity: 0.3;">📋</div>
+                    <div style="font-size: 54px; opacity: 1.0; filter: none; z-index: 10; position: relative;">📋</div>
                 </div>
             </div>
 
@@ -168,7 +168,7 @@ def create_visual_summary_dashboard(summary_text):
                             <div style="height: 100%; width: {pass_rate}%; background: rgba(255,255,255,0.8); border-radius: 10px; transition: width 1s ease;"></div>
                         </div>
                     </div>
-                    <div style="font-size: 48px; opacity: 0.3;">{pass_icon}</div>
+                    <div style="font-size: 54px; opacity: 1.0; filter: none; z-index: 10; position: relative;">{pass_icon}</div>
                 </div>
             </div>
 
@@ -182,7 +182,7 @@ def create_visual_summary_dashboard(summary_text):
                             {success_pct:.1f}% of valid tests
                         </p>
                     </div>
-                    <div style="font-size: 48px; opacity: 0.3;">✅</div>
+                    <div style="font-size: 54px; opacity: 1.0; filter: none; z-index: 10; position: relative;">✅</div>
                 </div>
             </div>
 
@@ -196,7 +196,7 @@ def create_visual_summary_dashboard(summary_text):
                             {fail_rate:.1f}% failure rate
                         </p>
                     </div>
-                    <div style="font-size: 48px; opacity: 0.3;">❌</div>
+                    <div style="font-size: 54px; opacity: 1.0; filter: none; z-index: 10; position: relative;">❌</div>
                 </div>
             </div>
 
@@ -210,7 +210,7 @@ def create_visual_summary_dashboard(summary_text):
                             {error_rate:.1f}% error rate
                         </p>
                     </div>
-                    <div style="font-size: 48px; opacity: 0.3;">⚠️</div>
+                    <div style="font-size: 54px; opacity: 1.0; filter: none; z-index: 10; position: relative;">⚠️</div>
                 </div>
             </div>
 
@@ -226,7 +226,7 @@ def create_visual_summary_dashboard(summary_text):
                             </div>
                         </div>
                     </div>
-                    <div style="font-size: 48px; opacity: 0.3;">💯</div>
+                    <div style="font-size: 54px; opacity: 1.0; filter: none; z-index: 10; position: relative;">💯</div>
                 </div>
             </div>
 

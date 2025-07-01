@@ -70,32 +70,32 @@ def create_summary(df: pd.DataFrame) -> str:
                 <!-- Table Header -->
                 <thead>
                     <tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                        <th style="padding: 15px; text-align: left; color: white; font-weight: 600; font-size: 14px; border-right: 1px solid rgba(255,255,255,0.1);">
+                        <th style="padding: 15px; text-align: left; color: white; font-weight: 600; font-size: 21px; border-right: 1px solid rgba(255,255,255,0.1);">
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <span style="opacity: 0.8;">📱</span> Model
                             </div>
                         </th>
-                        <th style="padding: 15px; text-align: left; color: white; font-weight: 600; font-size: 14px; border-right: 1px solid rgba(255,255,255,0.1);">
+                        <th style="padding: 15px; text-align: left; color: white; font-weight: 600; font-size: 21px; border-right: 1px solid rgba(255,255,255,0.1);">
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <span style="opacity: 0.8;">🔤</span> Code
                             </div>
                         </th>
-                        <th style="padding: 15px; text-align: left; color: white; font-weight: 600; font-size: 14px; border-right: 1px solid rgba(255,255,255,0.1);">
+                        <th style="padding: 15px; text-align: left; color: white; font-weight: 600; font-size: 21px; border-right: 1px solid rgba(255,255,255,0.1);">
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <span style="opacity: 0.8;">🏭</span> Station
                             </div>
                         </th>
-                        <th style="padding: 15px; text-align: left; color: white; font-weight: 600; font-size: 14px; border-right: 1px solid rgba(255,255,255,0.1);">
+                        <th style="padding: 15px; text-align: left; color: white; font-weight: 600; font-size: 21px; border-right: 1px solid rgba(255,255,255,0.1);">
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <span style="opacity: 0.8;">🧪</span> Test Case
                             </div>
                         </th>
-                        <th style="padding: 15px; text-align: center; color: white; font-weight: 600; font-size: 14px; border-right: 1px solid rgba(255,255,255,0.1);">
+                        <th style="padding: 15px; text-align: center; color: white; font-weight: 600; font-size: 21px; border-right: 1px solid rgba(255,255,255,0.1);">
                             <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
                                 <span style="opacity: 0.8;">📊</span> Count
                             </div>
                         </th>
-                        <th style="padding: 15px; text-align: center; color: white; font-weight: 600; font-size: 14px;">
+                        <th style="padding: 15px; text-align: center; color: white; font-weight: 600; font-size: 21px;">
                             <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
                                 <span style="opacity: 0.8;">📱</span> IMEIs
                             </div>
@@ -140,30 +140,30 @@ def create_summary(df: pd.DataFrame) -> str:
                     <tr style="background: {row_bg}; transition: all 0.2s ease;"
                         onmouseover="this.style.background='linear-gradient(90deg, {severity_bg} 0%, rgba(255,255,255,0) 100%)'; this.style.transform='translateX(5px)';"
                         onmouseout="this.style.background='{row_bg}'; this.style.transform='translateX(0)';">
-                        <td style="padding: 12px 15px; border-bottom: 1px solid #e9ecef; font-size: 14px; font-weight: 500;">
+                        <td style="padding: 12px 15px; border-bottom: 1px solid #e9ecef; font-size: 21px; font-weight: 500; color: #333;">
                             {model_escaped}
                         </td>
-                        <td style="padding: 12px 15px; border-bottom: 1px solid #e9ecef; font-size: 13px; color: #6c757d; font-family: monospace;">
+                        <td style="padding: 12px 15px; border-bottom: 1px solid #e9ecef; font-size: 19.5px; color: #6c757d; font-family: monospace;">
                             {model_code_escaped}
                         </td>
-                        <td style="padding: 12px 15px; border-bottom: 1px solid #e9ecef; font-size: 13px; color: #495057;">
+                        <td style="padding: 12px 15px; border-bottom: 1px solid #e9ecef; font-size: 19.5px; color: #495057;">
                             {station_id_escaped}
                         </td>
-                        <td style="padding: 12px 15px; border-bottom: 1px solid #e9ecef; font-size: 13px; color: #495057; max-width: 300px;">
-                            <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{result_fail_escaped}">
+                        <td style="padding: 12px 15px; border-bottom: 1px solid #e9ecef; font-size: 19.5px; color: #333; max-width: 300px;">
+                            <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;" title="{result_fail_escaped}">
                                 {result_fail_escaped}
                             </div>
                         </td>
                         <td style="padding: 12px 15px; border-bottom: 1px solid #e9ecef; text-align: center;">
                             <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
-                                <span style="font-size: 12px;">{severity_icon}</span>
-                                <span style="font-size: 16px; font-weight: bold; color: {severity_color};">
+                                <span style="font-size: 18px;">{severity_icon}</span>
+                                <span style="font-size: 24px; font-weight: bold; color: {severity_color};">
                                     {row['TC Count']}
                                 </span>
                             </div>
                         </td>
                         <td style="padding: 12px 15px; border-bottom: 1px solid #e9ecef; text-align: center;">
-                            <span style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 500;">
+                            <span style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 6px 16px; border-radius: 20px; font-size: 19.5px; font-weight: 500;">
                                 {row['IMEI Count']}
                             </span>
                         </td>
@@ -194,7 +194,7 @@ def create_summary(df: pd.DataFrame) -> str:
                         <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.9;">Total Failures</p>
                         <h3 style="margin: 0; font-size: 28px; font-weight: bold;">{total_failures:,}</h3>
                     </div>
-                    <div style="font-size: 36px; opacity: 0.3;">🚨</div>
+                    <div style="font-size: 42px; opacity: 1.0; filter: none; z-index: 10; position: relative;">🚨</div>
                 </div>
             </div>
 
@@ -205,7 +205,7 @@ def create_summary(df: pd.DataFrame) -> str:
                         <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.9;">Affected IMEIs</p>
                         <h3 style="margin: 0; font-size: 28px; font-weight: bold;">{total_imeis:,}</h3>
                     </div>
-                    <div style="font-size: 36px; opacity: 0.3;">📱</div>
+                    <div style="font-size: 42px; opacity: 1.0; filter: none; z-index: 10; position: relative;">📱</div>
                 </div>
             </div>
 
@@ -216,7 +216,7 @@ def create_summary(df: pd.DataFrame) -> str:
                         <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.9;">Unique Models</p>
                         <h3 style="margin: 0; font-size: 28px; font-weight: bold;">{unique_models}</h3>
                     </div>
-                    <div style="font-size: 36px; opacity: 0.3;">📊</div>
+                    <div style="font-size: 42px; opacity: 1.0; filter: none; z-index: 10; position: relative;">📊</div>
                 </div>
             </div>
 
@@ -227,7 +227,7 @@ def create_summary(df: pd.DataFrame) -> str:
                         <p style="margin: 0 0 8px 0; font-size: 14px; opacity: 0.9;">Test Stations</p>
                         <h3 style="margin: 0; font-size: 28px; font-weight: bold;">{unique_stations}</h3>
                     </div>
-                    <div style="font-size: 36px; opacity: 0.3;">🏭</div>
+                    <div style="font-size: 42px; opacity: 1.0; filter: none; z-index: 10; position: relative;">🏭</div>
                 </div>
             </div>
         """
@@ -237,8 +237,8 @@ def create_summary(df: pd.DataFrame) -> str:
 
         <!-- Legend -->
         <div style="margin-top: 20px; padding: 15px; background: rgba(107, 99, 246, 0.05); border-radius: 10px; border: 1px solid rgba(107, 99, 246, 0.2);">
-            <h4 style="margin: 0 0 10px 0; color: #667eea; font-size: 16px;">📊 Severity Legend</h4>
-            <div style="display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px;">
+            <h4 style="margin: 0 0 10px 0; color: #667eea; font-size: 24px;">📊 Severity Legend</h4>
+            <div style="display: flex; gap: 20px; flex-wrap: wrap; font-size: 19.5px;">
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <span>🔴</span> <span style="color: #dc3545; font-weight: 500;">Critical</span> <span style="color: #6c757d;">(≥80% of max)</span>
                 </div>

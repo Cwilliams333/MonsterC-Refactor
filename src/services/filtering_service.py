@@ -314,6 +314,17 @@ def filter_data(
     # Calculate additional metrics for the beautiful UI
     success_rate = len(successes) / total_tests * 100 if total_tests else 0
     failure_rate = len(failures) / total_tests * 100 if total_tests else 0
+    # Calculate error rate - need to find records with error_code (non-null and non-zero)
+    errors = (
+        filtered_df[
+            (filtered_df.get("error_code", pd.Series()).notna())
+            & (filtered_df.get("error_code", pd.Series()) != 0)
+            & (filtered_df.get("error_code", pd.Series()) != "0")
+        ]
+        if "error_code" in filtered_df.columns
+        else pd.DataFrame()
+    )
+    error_rate = len(errors) / total_tests * 100 if total_tests else 0
 
     # Get top failing models and test cases with their counts
     top_models_data = (
@@ -327,8 +338,12 @@ def filter_data(
         .head()
     )
 
-    # Get active stations
-    active_stations = sorted(filtered_df["Station ID"].unique())
+    # Get top failing stations
+    top_stations_data = (
+        filtered_df[filtered_df["Overall status"] == "FAILURE"]["Station ID"]
+        .value_counts()
+        .head()
+    )
 
     # Calculate error rates (top 5)
     error_rates_data = analyze_error_rates(filtered_df, top_n=5)
@@ -356,7 +371,7 @@ def filter_data(
                         <p style="margin: 0 0 8px 0; font-size: 14px; color: #666;">Total Tests Run</p>
                         <h3 style="margin: 0; font-size: 32px; font-weight: bold; color: #333;">{total_tests:,}</h3>
                     </div>
-                    <div style="font-size: 36px; color: #3b82f6; opacity: 0.3;">🧪</div>
+                    <div style="font-size: 42px; opacity: 1.0; filter: none; z-index: 10; position: relative;">🧪</div>
                 </div>
             </div>
 
@@ -370,7 +385,7 @@ def filter_data(
                             {len(successes):,} passed tests
                         </p>
                     </div>
-                    <div style="font-size: 36px; color: #10b981; opacity: 0.3;">✅</div>
+                    <div style="font-size: 42px; opacity: 1.0; filter: none; z-index: 10; position: relative;">✅</div>
                 </div>
             </div>
 
@@ -384,7 +399,21 @@ def filter_data(
                             {len(failures):,} failed tests
                         </p>
                     </div>
-                    <div style="font-size: 36px; color: #ef4444; opacity: 0.3;">❌</div>
+                    <div style="font-size: 42px; opacity: 1.0; filter: none; z-index: 10; position: relative;">❌</div>
+                </div>
+            </div>
+
+            <!-- Error Rate Card -->
+            <div style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.08); transition: all 0.3s ease; border-top: 4px solid #f59e0b;">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div>
+                        <p style="margin: 0 0 8px 0; font-size: 14px; color: #666;">Error Rate</p>
+                        <h3 style="margin: 0; font-size: 32px; font-weight: bold; color: #f59e0b;">{error_rate:.1f}%</h3>
+                        <p style="margin: 8px 0 0 0; font-size: 13px; color: #999;">
+                            {len(errors):,} error tests
+                        </p>
+                    </div>
+                    <div style="font-size: 42px; opacity: 1.0; filter: none; z-index: 10; position: relative;">⚠️</div>
                 </div>
             </div>
 
@@ -393,18 +422,27 @@ def filter_data(
         <!-- Second Row: Analysis Cards -->
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; margin-bottom: 25px;">
 
-            <!-- Active Stations Card (moved to left) -->
+            <!-- Top Failing Stations Card -->
             <div style="background: white; border-radius: 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.08); overflow: hidden; transition: all 0.3s ease;">
                 <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 15px 20px;">
                     <h3 style="color: white; margin: 0; font-size: 18px; font-weight: 600;">
-                        🏭 Active Station IDs ({len(active_stations)} stations)
+                        🏭 Top 5 Failing Stations
                     </h3>
                 </div>
-                <div style="padding: 20px; max-height: 300px; overflow-y: auto;">
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
-                        {"".join([f'<div style="background: #f9fafb; padding: 10px 12px; border-radius: 6px; border-left: 3px solid #4facfe;"><div style="font-weight: 600; color: #333; margin-bottom: 2px; font-size: 14px;">{station}</div><div style="font-size: 12px; color: #666;">{resolve_station(station)}</div></div>' for station in active_stations[:10]])}
-                        {f'<div style="background: #f3f4f6; padding: 10px 12px; border-radius: 6px; text-align: center; color: #666; font-size: 13px;">... and {len(active_stations) - 10} more</div>' if len(active_stations) > 10 else ''}
-                    </div>
+                <div style="padding: 20px;">
+                    {f'''
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="border-bottom: 2px solid #e5e7eb;">
+                                <th style="text-align: left; padding: 10px 0; color: #666; font-weight: 600;">Station ID</th>
+                                <th style="text-align: right; padding: 10px 0; color: #666; font-weight: 600;">Failures</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {"".join([f'<tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 12px 0; color: #333;"><div style="font-weight: 600; color: #333;">{station}</div><div style="font-size: 12px; color: #666; margin-top: 2px;">{resolve_station(station)}</div></td><td style="padding: 12px 0; text-align: right; font-weight: 600; color: #ef4444;">{count:,}</td></tr>' for station, count in top_stations_data.items()])}
+                        </tbody>
+                    </table>
+                    ''' if not top_stations_data.empty else '<p style="text-align: center; color: #999; padding: 20px 0;">No failing stations found</p>'}
                 </div>
             </div>
 
@@ -528,6 +566,10 @@ def filter_data(
 
         #custom_filter_summary > div > div:nth-child(2) > div:nth-child(4) {{
             animation-delay: 0.3s;
+        }}
+
+        #custom_filter_summary > div > div:nth-child(2) > div:nth-child(5) {{
+            animation-delay: 0.4s;
         }}
 
         #custom_filter_summary > div > div > div:hover {{

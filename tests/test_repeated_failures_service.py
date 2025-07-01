@@ -176,7 +176,7 @@ class TestCreateSummary:
             ]
         )
         summary = create_summary(empty_df)
-        assert "Found 0 instances of repeated failures" in summary
+        assert ">0</span> instances of repeated failures" in summary
 
     def test_create_summary_single_row(self):
         """Test creating summary with single row."""
@@ -191,7 +191,7 @@ class TestCreateSummary:
             }
         )
         summary = create_summary(single_row)
-        assert "Found 1 instances of repeated failures" in summary
+        assert ">1</span> instances of repeated failures" in summary
         assert "iPhone14ProMax" in summary
 
 

@@ -434,3 +434,58 @@ class TestFilteringService:
         status_counts = analyze_overall_status(mixed_df)
         assert isinstance(status_counts, pd.Series)
         # Should have counts for non-null statuses
+
+    def test_top_failing_stations_in_filter_data(self, sample_test_data):
+        """Test that filter_data shows Top 5 Failing Stations instead of Active Station IDs."""
+        # Add more failure data for better testing
+        failure_data = pd.DataFrame(
+            {
+                "Overall status": ["FAILURE"] * 10,
+                "Station ID": [
+                    "radi135",
+                    "radi135",
+                    "radi135",
+                    "radi138",
+                    "radi138",
+                    "radi138",
+                    "radi138",
+                    "radi162",
+                    "radi162",
+                    "radi140",
+                ],
+                "Model": ["iPhone14ProMax"] * 10,
+                "result_FAIL": ["Camera Fail"] * 10,
+                "Date": ["1/2/2025"] * 10,
+                "IMEI": [str(i) for i in range(1000, 1010)],
+                "Operator": ["TestOp1"] * 10,
+                "Source": ["SourceA"] * 10,
+                "Manufacturer": ["Apple"] * 10,
+                "error_code": [0] * 10,
+                "error_message": [""] * 10,
+            }
+        )
+
+        result = filter_data(failure_data, "No Filter", "All", "All", "All")
+        summary = result[0]
+
+        # Check that the new Top 5 Failing Stations section exists
+        assert "Top 5 Failing Stations" in summary
+
+        # Check that the old Active Station IDs section is gone
+        assert "Active Station IDs" not in summary
+
+        # Verify the top failing stations are shown correctly
+        # radi138 should have the most failures (4), followed by radi135 (3), radi162 (2), radi140 (1)
+        assert "radi138" in summary
+        assert "radi135" in summary
+
+        # Check for the table structure
+        assert '<table style="width: 100%; border-collapse: collapse;">' in summary
+        assert (
+            '<th style="text-align: left; padding: 10px 0; color: #666; font-weight: 600;">Station ID</th>'
+            in summary
+        )
+        assert (
+            '<th style="text-align: right; padding: 10px 0; color: #666; font-weight: 600;">Failures</th>'
+            in summary
+        )
