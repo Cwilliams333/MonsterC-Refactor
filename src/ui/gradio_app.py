@@ -898,6 +898,8 @@ with gr.Blocks(
         target_columns = [
             "Operator",
             "Date Time",
+            "Date",
+            "Hour",
             "Model",
             "IMEI",
             "App version",

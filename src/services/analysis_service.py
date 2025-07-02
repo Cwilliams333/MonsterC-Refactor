@@ -114,11 +114,27 @@ def perform_analysis(
         return missing
 
     # List of required columns for analysis
-    required_columns = ["Overall status", "Model", "Station ID", "result_FAIL", "Date"]
+    required_columns = ["Overall status", "Model", "Station ID", "result_FAIL"]
     # Check if any required columns are missing
     missing_columns = [col for col in required_columns if col not in df.columns]
     if missing_columns:
         raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
+
+    # Check if we have Date or Date Time column
+    date_column = None
+    if "Date" in df.columns:
+        date_column = "Date"
+    elif "Date Time" in df.columns:
+        date_column = "Date Time"
+        # Extract Date from Date Time if needed
+        if "Date" not in df.columns:
+            try:
+                df["Date"] = pd.to_datetime(df["Date Time"]).dt.date
+            except Exception as e:
+                logger.warning(f"Could not extract Date from Date Time: {e}")
+                df["Date"] = df["Date Time"]  # Use as-is if parsing fails
+    else:
+        logger.warning("No Date or Date Time column found")
 
     # Check data quality for each required column
     for column in required_columns:
@@ -148,7 +164,11 @@ def perform_analysis(
 
     # Create timestamp and date range info
     analysis_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # Current timestamp
-    date_range = get_date_range(df)  # Get date range from data
+    # Use the appropriate date column
+    if date_column:
+        date_range = get_date_range(df, date_column)  # Get date range from data
+    else:
+        date_range = "No date information available"
 
     # Analyze station failures
     station_failures = df[

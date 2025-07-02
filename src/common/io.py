@@ -7,6 +7,7 @@ error handling and type conversion utilities.
 """
 
 import logging
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -62,6 +63,8 @@ def auto_format_csv(df: pd.DataFrame) -> pd.DataFrame:
     target_columns = [
         "Operator",
         "Date Time",
+        "Date",
+        "Hour",
         "Model",
         "IMEI",
         "App version",
@@ -169,45 +172,43 @@ def load_data(
         try:
             logger.info(f"Attempting to read CSV with encoding: {enc}")
 
-            # First, peek at the columns to determine if we have date columns
-            if date_columns is None:
-                try:
-                    peek_df = pd.read_csv(file_path, nrows=0, encoding=enc)
-                    potential_date_cols = [
-                        col
-                        for col in peek_df.columns
-                        if "date" in col.lower() or "time" in col.lower()
-                    ]
-                    date_columns = potential_date_cols if potential_date_cols else None
-                except Exception:
-                    date_columns = None
+            # Disable automatic date parsing to avoid warnings
+            # We'll handle date parsing manually if needed
+            date_columns = False
 
             # Read CSV with comprehensive settings
             try:
-                df = pd.read_csv(
-                    file_path,
-                    low_memory=False,
-                    encoding=enc,
-                    na_values=na_values,
-                    keep_default_na=True,
-                    parse_dates=date_columns if date_columns else False,
-                    dtype_backend="numpy_nullable",  # Use nullable dtypes
-                )
+                # Suppress date parsing warnings
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=UserWarning)
+                    warnings.filterwarnings("ignore", category=FutureWarning)
+                    df = pd.read_csv(
+                        file_path,
+                        low_memory=False,
+                        encoding=enc,
+                        na_values=na_values,
+                        keep_default_na=True,
+                        parse_dates=False,  # Disable date parsing to avoid warnings
+                        dtype_backend="numpy_nullable",  # Use nullable dtypes
+                    )
             except Exception as date_parse_error:
                 # If date parsing fails, try without parsing dates
                 logger.warning(
                     f"Date parsing failed: {date_parse_error}. "
                     "Retrying without date parsing."
                 )
-                df = pd.read_csv(
-                    file_path,
-                    low_memory=False,
-                    encoding=enc,
-                    na_values=na_values,
-                    keep_default_na=True,
-                    parse_dates=False,  # Disable date parsing
-                    dtype_backend="numpy_nullable",
-                )
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=UserWarning)
+                    warnings.filterwarnings("ignore", category=FutureWarning)
+                    df = pd.read_csv(
+                        file_path,
+                        low_memory=False,
+                        encoding=enc,
+                        na_values=na_values,
+                        keep_default_na=True,
+                        parse_dates=False,  # Disable date parsing
+                        dtype_backend="numpy_nullable",
+                    )
 
             logger.info(f"Successfully loaded CSV with encoding: {enc}")
             logger.info(f"DataFrame shape: {df.shape}")
