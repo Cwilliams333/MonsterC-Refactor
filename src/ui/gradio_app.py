@@ -448,6 +448,8 @@ with gr.Blocks(
 
     with gr.Row():
         file_input = gr.File(label="Upload CSV File")
+        # Notification for auto-formatting
+        format_notification = gr.Markdown(value="", visible=False)
 
     df = gr.State()  # State to hold the DataFrame
 
@@ -854,14 +856,87 @@ with gr.Blocks(
     # Event Handlers - Using decorated functions for error handling
 
     @capture_exceptions(
-        user_message="Failed to load and update data", return_value=[None] * 16
+        user_message="Failed to load and update data", return_value=[None] * 17
     )
-    def load_and_update_wrapped(file):
+    def load_and_update_wrapped(file, progress=gr.Progress()):
         """Load CSV file and update all filter dropdowns."""
         logger.info(f"Loading file: {getattr(file, 'name', 'unknown')}")
 
-        # Load the data
-        df = load_data(file)
+        # Show initial progress
+        progress(0.1, desc="Reading CSV file...")
+
+        # Load the data with auto-formatting disabled first to check if formatting is needed
+        df_raw = load_data(file, auto_format=False)
+
+        if df_raw is None or df_raw.empty:
+            progress(1.0, desc="File is empty or invalid")
+            # Return empty values for all outputs
+            empty_dropdown = gr.update(choices=["All"], value="All")
+            empty_dropdown_multi = gr.update(choices=["All"], value=["All"])
+            return [
+                None,  # df
+                empty_dropdown,  # source
+                empty_dropdown,  # station_id
+                empty_dropdown,  # model
+                gr.update(choices=[]),  # result_fail
+                empty_dropdown,  # advanced_operator
+                empty_dropdown,  # advanced_model
+                empty_dropdown,  # advanced_manufacturer
+                empty_dropdown,  # advanced_source
+                empty_dropdown,  # advanced_overall_status
+                empty_dropdown,  # advanced_station_id
+                gr.update(choices=[]),  # advanced_result_fail
+                empty_dropdown_multi,  # operator_filter
+                empty_dropdown_multi,  # source_filter
+                empty_dropdown_multi,  # station_id_filter
+                empty_dropdown,  # interactive_operator_filter
+                gr.update(value="", visible=False),  # notification
+            ]
+
+        # Check if formatting is needed
+        original_cols = len(df_raw.columns)
+        target_columns = [
+            "Operator",
+            "Date Time",
+            "Model",
+            "IMEI",
+            "App version",
+            "Manufacturer",
+            "OS",
+            "OS name",
+            "Source",
+            "RADI app version",
+            "Overall status",
+            "Station ID",
+            "result_FAIL",
+            "LCD Grading 1",
+            "error_code",
+            "error_message",
+            "BlindUnlockPerformed",
+        ]
+
+        needs_formatting = original_cols > len(target_columns) or not all(
+            col in df_raw.columns for col in target_columns
+        )
+
+        if needs_formatting:
+            progress(0.3, desc="Detected raw format. Analyzing columns...")
+            progress(
+                0.5,
+                desc=f"Auto-formatting: Converting {original_cols} columns to {len(target_columns)} required columns...",
+            )
+
+            # Now load with auto-formatting
+            df = load_data(file, auto_format=True)
+
+            progress(0.7, desc="Formatting complete! Processing data...")
+            notification_msg = f"✅ Auto-formatting applied: Reduced from {original_cols} to {len(target_columns)} columns"
+        else:
+            progress(0.5, desc="CSV already in correct format. Processing data...")
+            df = df_raw
+            notification_msg = "✅ CSV loaded successfully - no formatting needed"
+
+        progress(0.8, desc="Updating filters...")
 
         if df is None or df.empty:
             # Return empty values for all outputs - need to return proper dropdown updates
@@ -926,7 +1001,9 @@ with gr.Blocks(
             else ["All"]
         )
 
-        # Return all the updated values (16 total after removing pivot table components)
+        progress(1.0, desc="Complete!")
+
+        # Return all the updated values (17 total including notification)
         # For dropdowns, we need to return gr.update(choices=...) to update the choices
         return [
             df,  # 1. The loaded dataframe
@@ -957,6 +1034,7 @@ with gr.Blocks(
             gr.update(
                 choices=operators, value="All"
             ),  # 16. Interactive Pivot: Operator
+            gr.update(value=notification_msg, visible=True),  # 17. Notification
         ]
 
     @capture_exceptions(user_message="Analysis failed", return_value=None)
@@ -1754,6 +1832,7 @@ with gr.Blocks(
             source_filter,
             station_id_filter,
             interactive_operator_filter,  # Interactive pivot filter
+            format_notification,  # Notification for auto-formatting
         ],
     )
 

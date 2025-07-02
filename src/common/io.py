@@ -48,12 +48,69 @@ def detect_encoding(file_path: Union[str, Path]) -> str:
         return "utf-8"
 
 
+def auto_format_csv(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Auto-format CSV to include only the required columns for MonsterC.
+
+    Args:
+        df: Input DataFrame with potentially many columns
+
+    Returns:
+        pd.DataFrame: Formatted DataFrame with only required columns
+    """
+    # Define the target columns we want to keep
+    target_columns = [
+        "Operator",
+        "Date Time",
+        "Model",
+        "IMEI",
+        "App version",
+        "Manufacturer",
+        "OS",
+        "OS name",
+        "Source",
+        "RADI app version",
+        "Overall status",
+        "Station ID",
+        "result_FAIL",
+        "LCD Grading 1",
+        "error_code",
+        "error_message",
+        "BlindUnlockPerformed",
+    ]
+
+    # Check which target columns exist in the DataFrame
+    existing_columns = [col for col in target_columns if col in df.columns]
+    missing_columns = [col for col in target_columns if col not in df.columns]
+
+    if missing_columns:
+        logger.warning(f"Missing columns in CSV: {missing_columns}")
+        # Add missing columns with NaN values
+        for col in missing_columns:
+            df[col] = pd.NA
+
+    # Select only the target columns in the correct order
+    formatted_df = df[target_columns].copy()
+
+    # Log formatting information
+    original_cols = len(df.columns)
+    final_cols = len(formatted_df.columns)
+    removed_cols = original_cols - final_cols
+
+    if removed_cols > 0:
+        logger.info(f"Auto-formatting: Removed {removed_cols} unnecessary columns")
+        logger.info(f"Kept {final_cols} required columns out of {original_cols} total")
+
+    return formatted_df
+
+
 def load_data(
     file: Union[str, Path],
     encoding: Optional[str] = None,
     auto_detect_encoding: bool = True,
     date_columns: Optional[List[str]] = None,
     custom_na_values: Optional[List[str]] = None,
+    auto_format: bool = True,
 ) -> pd.DataFrame:
     """
     Load data from a CSV file with improved error handling and mixed type handling.
@@ -154,6 +211,11 @@ def load_data(
 
             logger.info(f"Successfully loaded CSV with encoding: {enc}")
             logger.info(f"DataFrame shape: {df.shape}")
+
+            # Auto-format the DataFrame if requested
+            if auto_format:
+                df = auto_format_csv(df)
+                logger.info(f"Auto-formatted DataFrame shape: {df.shape}")
 
             # Log DataFrame info
             if logger.isEnabledFor(logging.DEBUG):
