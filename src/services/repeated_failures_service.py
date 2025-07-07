@@ -488,6 +488,7 @@ def analyze_repeated_failures(
                 multiselect=True,
             ),
             df,  # Return the original dataframe for command generation
+            repeated_failures,  # Return the repeated failures dataframe for filtering
         )
 
     except Exception as e:
@@ -499,7 +500,7 @@ def analyze_repeated_failures(
             <p style="margin: 10px 0 0 0; font-size: 14px; opacity: 0.7;">Please check your input and try again.</p>
         </div>
         """
-        return error_message, None, None, None
+        return error_message, None, None, None, None
 
 
 @capture_exceptions(user_message="Failed to update summary chart and data")

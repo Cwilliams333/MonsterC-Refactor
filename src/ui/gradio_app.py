@@ -909,6 +909,9 @@ with gr.Blocks(
             # Hidden state to store the full dataframe for command generation
             full_df_state = gr.State()
 
+            # State to store the repeated failures dataframe for filtering
+            repeated_failures_state = gr.State()
+
             # State to store selected row data
             selected_row_state = gr.State(
                 {"model": None, "station": None, "test_case": None}
@@ -1406,16 +1409,21 @@ with gr.Blocks(
         return analyze_wifi_errors(file, error_threshold)
 
     @capture_exceptions(
-        user_message="Repeated failures analysis failed", return_value=None
+        user_message="Repeated failures analysis failed",
+        return_value=(None, None, None, None, None),
     )
     def analyze_repeated_failures_wrapped(file, min_failures):
         """Wrapper for analyze_repeated_failures with error handling."""
         logger.info(f"Analyzing repeated failures with minimum: {min_failures}")
-        summary, fig, dropdown, original_df = analyze_repeated_failures(
-            file, min_failures
-        )
-        # Store the original dataframe in the state
-        return summary, fig, dropdown, original_df
+        (
+            summary,
+            fig,
+            dropdown,
+            original_df,
+            repeated_failures_df,
+        ) = analyze_repeated_failures(file, min_failures)
+        # Return all values including both dataframes
+        return summary, fig, dropdown, original_df, repeated_failures_df
 
     @capture_exceptions(user_message="Summary update failed", return_value=None)
     def update_summary_chart_and_data_wrapped(
@@ -2283,7 +2291,13 @@ with gr.Blocks(
     analyze_failures_button.click(
         analyze_repeated_failures_wrapped,
         inputs=[file_input, min_failures],
-        outputs=[failures_summary, failures_chart, test_case_filter, full_df_state],
+        outputs=[
+            failures_summary,
+            failures_chart,
+            test_case_filter,
+            full_df_state,
+            repeated_failures_state,
+        ],
     ).then(
         lambda: "",  # Clear the command generation HTML
         outputs=[command_generation_html],
@@ -2294,6 +2308,20 @@ with gr.Blocks(
         handle_test_case_selection_wrapped,
         inputs=[test_case_filter],
         outputs=[test_case_filter],
+    )
+
+    # Add change handler to update the chart when test cases are filtered
+    test_case_filter.change(
+        update_summary_chart_and_data_wrapped,
+        inputs=[repeated_failures_state, sort_by, test_case_filter],
+        outputs=[failures_summary, failures_chart],
+    )
+
+    # Add change handler for sort_by dropdown
+    sort_by.change(
+        update_summary_chart_and_data_wrapped,
+        inputs=[repeated_failures_state, sort_by, test_case_filter],
+        outputs=[failures_summary, failures_chart],
     )
 
     # JavaScript event handling for HTML table row clicks
