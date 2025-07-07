@@ -20,27 +20,27 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # Import from common modules (new architecture)
-from common.io import load_data
-from common.logging_config import capture_exceptions, get_logger
+from src.common.io import load_data
+from src.common.logging_config import capture_exceptions, get_logger
 
 # Import data mappings from common module
-from common.mappings import (
+from src.common.mappings import (
     DEVICE_MAP as device_map,
     STATION_TO_MACHINE as station_to_machine,
     TEST_TO_RESULT_FAIL_MAP as test_to_result_fail_map,
 )
 
 # Import from services (new architecture)
-from services.analysis_service import perform_analysis
-from services.filtering_service import (
+from src.services.analysis_service import perform_analysis
+from src.services.filtering_service import (
     apply_filter_and_sort,
     filter_data,
     get_unique_values,
     update_filter_dropdowns,
     update_filter_visibility,
 )
-from services.imei_extractor_service import process_data
-from services.pivot_service import (
+from src.services.imei_extractor_service import get_test_from_result_fail, process_data
+from src.services.pivot_service import (
     analyze_top_models,
     analyze_top_test_cases,
     apply_filters,
@@ -49,12 +49,13 @@ from services.pivot_service import (
     create_pivot_table,
     find_top_failing_stations,
 )
-from services.repeated_failures_service import (
+from src.services.repeated_failures_service import (
     analyze_repeated_failures,
+    generate_imei_commands,
     handle_test_case_selection,
     update_summary_chart_and_data,
 )
-from services.wifi_error_service import analyze_wifi_errors
+from src.services.wifi_error_service import analyze_wifi_errors
 
 # Configure logging
 logger = get_logger(__name__)
@@ -124,7 +125,7 @@ def create_visual_summary_dashboard(summary_text):
     pass_color = (
         "#10b981" if pass_rate >= 95 else "#f59e0b" if pass_rate >= 85 else "#ef4444"
     )
-    pass_icon = "✅" if pass_rate >= 95 else "⚠️" if pass_rate >= 85 else "❌"
+    pass_icon = "✅" if pass_rate >= 95 else "⚠️" if pass_rate >= 85 else "✖️"
 
     # Create donut chart data for mini visualization
     chart_data = f"{pass_rate},{fail_rate},{error_rate}"
@@ -196,7 +197,7 @@ def create_visual_summary_dashboard(summary_text):
                             {fail_rate:.1f}% failure rate
                         </p>
                     </div>
-                    <div style="font-size: 54px; opacity: 1.0; filter: none; z-index: 10; position: relative;">❌</div>
+                    <div style="font-size: 54px; opacity: 1.0; filter: none; z-index: 10; position: relative;">✖️</div>
                 </div>
             </div>
 
@@ -303,10 +304,267 @@ def create_visual_summary_dashboard(summary_text):
     return html
 
 
+# JavaScript for handling row clicks and command generation
+command_generation_js = """
+<script>
+window.monsterCData = window.monsterCData || {};
+
+// Add a function to poll for changes and trigger command generation
+window.checkForCommandGeneration = function() {
+    const modelInput = document.querySelector('#hidden_model textarea');
+    const stationInput = document.querySelector('#hidden_station textarea');
+    const testCaseInput = document.querySelector('#hidden_test_case textarea');
+
+    if (modelInput && stationInput && testCaseInput) {
+        const model = modelInput.value;
+        const station = stationInput.value;
+        const testCase = testCaseInput.value;
+
+        // Check if we have pending data and inputs match
+        if (window.monsterCData.pendingGeneration &&
+            model === window.monsterCData.pendingGeneration.model &&
+            station === window.monsterCData.pendingGeneration.station &&
+            testCase === window.monsterCData.pendingGeneration.testCase) {
+
+            console.log('Values match pending generation, triggering button click...');
+            const button = document.querySelector('#command_gen_button button');
+            if (button) {
+                button.click();
+                window.monsterCData.pendingGeneration = null; // Clear pending
+
+                // Also try to trigger change event on model input as backup
+                setTimeout(() => {
+                    if (modelInput.value) {
+                        modelInput.dispatchEvent(new Event('change', { bubbles: true }));
+                        console.log('Triggered change event on model input');
+                    }
+                }, 100);
+            }
+        }
+    }
+};
+
+// Set up periodic check
+setInterval(window.checkForCommandGeneration, 250);
+
+// Add direct backend trigger function
+window.triggerCommandGeneration = function(model, station, testCase) {
+    console.log('Direct trigger called:', { model, station, testCase });
+
+    // Find Gradio app and trigger directly
+    if (window.gradio_config && window.gradio_config.fn) {
+        console.log('Found gradio_config.fn');
+    }
+
+    // Look for the button and manually trigger its event
+    const button = document.querySelector('#command_gen_button button');
+    if (button) {
+        // Find if button has any event data attached
+        const events = button._events || button.__events || getEventListeners?.(button);
+        console.log('Button event data:', events);
+    }
+};
+
+window.handleFailureRowClick = function(model, stationId, testCase, rowIdx) {
+    console.log('=== handleFailureRowClick called ===');
+    console.log('Parameters:', { model, stationId, testCase, rowIdx });
+
+    // Try multiple selectors to find the components
+    const findTextarea = (id) => {
+        return document.querySelector(`#${id} textarea`) ||
+               document.querySelector(`#${id} input`) ||
+               document.querySelector(`[id="${id}"] textarea`) ||
+               document.querySelector(`[id="${id}"] input`);
+    };
+
+    const findButton = (id) => {
+        return document.querySelector(`#${id} button`) ||
+               document.querySelector(`[id="${id}"] button`) ||
+               document.querySelector(`#${id}`);
+    };
+
+    // Update the hidden Gradio components
+    const modelInput = findTextarea('js_model');
+    const stationInput = findTextarea('js_station');
+    const testCaseInput = findTextarea('js_test_case');
+    const triggerButton = findButton('js_trigger');
+
+    console.log('Found components:', {
+        modelInput: !!modelInput,
+        stationInput: !!stationInput,
+        testCaseInput: !!testCaseInput,
+        triggerButton: !!triggerButton
+    });
+
+    if (modelInput && stationInput && testCaseInput && triggerButton) {
+        // Set the values
+        modelInput.value = model;
+        stationInput.value = stationId;
+        testCaseInput.value = testCase;
+
+        // Force Gradio to recognize the change
+        const inputEvent = new Event('input', { bubbles: true });
+        const changeEvent = new Event('change', { bubbles: true });
+
+        modelInput.dispatchEvent(inputEvent);
+        stationInput.dispatchEvent(inputEvent);
+        testCaseInput.dispatchEvent(inputEvent);
+
+        modelInput.dispatchEvent(changeEvent);
+        stationInput.dispatchEvent(changeEvent);
+        testCaseInput.dispatchEvent(changeEvent);
+
+        console.log('Values set, triggering button click...');
+
+        // Small delay then click the trigger button
+        setTimeout(() => {
+            triggerButton.click();
+            console.log('Button clicked');
+        }, 200);
+    } else {
+        console.error('Could not find hidden components:', {
+            modelInput: modelInput?.outerHTML?.substring(0, 50),
+            stationInput: stationInput?.outerHTML?.substring(0, 50),
+            testCaseInput: testCaseInput?.outerHTML?.substring(0, 50),
+            triggerButton: triggerButton?.outerHTML?.substring(0, 50)
+        });
+
+        // Try to find any component with these IDs
+        console.log('All js_model elements:', document.querySelectorAll('[id*="js_model"]'));
+        console.log('All js_trigger elements:', document.querySelectorAll('[id*="js_trigger"]'));
+
+        // Fallback: try the counter approach
+        console.log('Trying alternative counter approach...');
+        window.triggerCommandGeneration(model, stationId, testCase);
+    }
+};
+
+// Monitor for command UI generation and move it to the injection point
+const observer = new MutationObserver(function(mutations) {
+    mutations.forEach(function(mutation) {
+        // Check if command UI was added to the container
+        const container = document.getElementById('command_generation_container');
+        const commandUI = container ? container.querySelector('#command-ui') : null;
+        const injectionPoint = document.getElementById('command_generation_injection_point');
+
+        if (commandUI && injectionPoint && !injectionPoint.contains(commandUI)) {
+            console.log('Moving command UI to injection point');
+            // Move the command UI to the injection point
+            injectionPoint.innerHTML = '';
+            injectionPoint.appendChild(commandUI);
+        }
+    });
+});
+
+// Start observing the command generation container
+setTimeout(() => {
+    const container = document.getElementById('command_generation_container');
+    if (container) {
+        observer.observe(container, { childList: true, subtree: true });
+    }
+}, 1000);
+
+// Debug: Check if handleFailureRowClick is available
+console.log('handleFailureRowClick defined:', typeof window.handleFailureRowClick);
+
+// Periodically check if the function is being called
+setInterval(() => {
+    const rows = document.querySelectorAll('tr[onclick*="handleFailureRowClick"]');
+    if (rows.length > 0 && !window.debugRowsFound) {
+        console.log('Found clickable rows:', rows.length);
+        window.debugRowsFound = true;
+    }
+}, 2000);
+
+// Store row data globally
+window.selectedRowData = null;
+
+// Alternative approach: store data and trigger via counter
+window.triggerCommandGeneration = function(model, station, testCase) {
+    window.selectedRowData = { model, station, testCase };
+
+    // Find the counter and increment it
+    const counter = document.querySelector('#js_counter input') ||
+                   document.querySelector('#js_counter textarea');
+    if (counter) {
+        const currentValue = parseInt(counter.value) || 0;
+        counter.value = currentValue + 1;
+        counter.dispatchEvent(new Event('input', { bubbles: true }));
+        counter.dispatchEvent(new Event('change', { bubbles: true }));
+        console.log('Counter incremented to:', counter.value);
+    }
+};
+
+// Add CSS for hover effects
+const style = document.createElement('style');
+style.textContent = `
+    #command-ui button:hover {
+        background: #5a5fb8 !important;
+        transform: scale(1.05);
+        transition: all 0.2s ease;
+    }
+
+    #command-ui pre {
+        padding-right: 80px;
+    }
+
+    #command_generation_container {
+        transition: all 0.3s ease;
+    }
+
+    /* Keep hidden components technically visible but minimal */
+    #hidden_components_row {
+        position: fixed !important;
+        bottom: 5px !important;
+        right: 5px !important;
+        width: 10px !important;
+        height: 10px !important;
+        opacity: 0.001 !important;
+        overflow: hidden !important;
+    }
+
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+
+    @keyframes slideDown {
+        from { opacity: 0; transform: translateY(-20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+`;
+document.head.appendChild(style);
+</script>
+"""
+
 # Gradio UI Definition
 with gr.Blocks(
     theme=gr.themes.Soft(),
+    head=command_generation_js,
     css="""
+    /* Keep hidden components technically visible but minimal */
+    #hidden_components_row {
+        position: fixed !important;
+        bottom: 5px !important;
+        right: 5px !important;
+        width: 10px !important;
+        height: 10px !important;
+        opacity: 0.001 !important;
+        pointer-events: none !important;
+        overflow: hidden !important;
+    }
+
+    #hidden_components_row > * {
+        width: 1px !important;
+        height: 1px !important;
+        font-size: 1px !important;
+    }
+
+    /* Allow the button to be clickable even when hidden */
+    #command_gen_button {
+        pointer-events: auto !important;
+    }
+
     /* Base styles for markdown content */
     .markdown-body {
         padding: 1rem;
@@ -442,6 +700,48 @@ with gr.Blocks(
             font-size: 0.9rem;
         }
     }
+
+    /* Command generation section styling */
+    .command-generation-section {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 12px;
+        padding: 20px;
+        margin: 20px 0;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Copy button hover effect */
+    .copy-button {
+        transition: all 0.3s ease !important;
+        background: linear-gradient(135deg, #667eea, #764ba2) !important;
+        border: none !important;
+        cursor: pointer !important;
+    }
+
+    .copy-button:hover {
+        transform: scale(1.1) !important;
+        box-shadow: 0 4px 12px rgba(107, 99, 246, 0.4) !important;
+    }
+
+    /* Command box enhanced styling */
+    .command-box textarea {
+        background: rgba(0, 0, 0, 0.3) !important;
+        border: 1px solid rgba(107, 99, 246, 0.3) !important;
+        color: rgba(255, 255, 255, 0.95) !important;
+        font-size: 13px !important;
+        transition: all 0.3s ease !important;
+    }
+
+    .command-box textarea:hover {
+        border-color: rgba(107, 99, 246, 0.5) !important;
+        background: rgba(0, 0, 0, 0.4) !important;
+    }
+
+    /* Selected row highlight effect */
+    .gradio-dataframe tbody tr.selected {
+        background: linear-gradient(90deg, rgba(107, 99, 246, 0.2) 0%, rgba(107, 99, 246, 0.1) 100%) !important;
+        box-shadow: 0 2px 8px rgba(107, 99, 246, 0.2);
+    }
 """,
 ) as demo:
     gr.Markdown("# CSV Analysis Tool")
@@ -572,7 +872,14 @@ with gr.Blocks(
             # Add sorting controls
             with gr.Row():
                 sort_by = gr.Dropdown(
-                    choices=["TC Count", "Model", "Station ID", "Test Case"],
+                    choices=[
+                        "TC Count",
+                        "Model",
+                        "Station ID",
+                        "Operator",
+                        "Test Case",
+                        "Model Code",
+                    ],
                     value="TC Count",
                     label="Sort Results By",
                 )
@@ -593,10 +900,34 @@ with gr.Blocks(
                     """,
                     label="Repeated Failures Summary",
                 )
+
+            # Command Generation HTML - Will be populated dynamically between header and table
+            command_generation_html = gr.HTML(
+                value="", elem_id="command_generation_container"
+            )
+
+            # Hidden state to store the full dataframe for command generation
+            full_df_state = gr.State()
+
+            # State to store selected row data
+            selected_row_state = gr.State(
+                {"model": None, "station": None, "test_case": None}
+            )
+
+            # Hidden components for JavaScript interaction
+            with gr.Row(visible=False):
+                js_model = gr.Textbox(value="", elem_id="js_model", interactive=True)
+                js_station = gr.Textbox(
+                    value="", elem_id="js_station", interactive=True
+                )
+                js_test_case = gr.Textbox(
+                    value="", elem_id="js_test_case", interactive=True
+                )
+                js_trigger = gr.Button("Trigger", elem_id="js_trigger")
+                js_counter = gr.Number(value=0, elem_id="js_counter")
+
             with gr.Row():
                 failures_chart = gr.Plot(label="Repeated Failures Chart")
-            with gr.Row():
-                failures_df = gr.Dataframe(label="Repeated Failures Data")
 
         with gr.TabItem("WiFi Error Analysis"):
             with gr.Row():
@@ -1080,7 +1411,11 @@ with gr.Blocks(
     def analyze_repeated_failures_wrapped(file, min_failures):
         """Wrapper for analyze_repeated_failures with error handling."""
         logger.info(f"Analyzing repeated failures with minimum: {min_failures}")
-        return analyze_repeated_failures(file, min_failures)
+        summary, fig, dropdown, original_df = analyze_repeated_failures(
+            file, min_failures
+        )
+        # Store the original dataframe in the state
+        return summary, fig, dropdown, original_df
 
     @capture_exceptions(user_message="Summary update failed", return_value=None)
     def update_summary_chart_and_data_wrapped(
@@ -1102,6 +1437,39 @@ with gr.Blocks(
         except Exception as e:
             logger.error(f"Test case selection failed: {e}")
             return selected_test_cases  # Return current state on error
+
+    @capture_exceptions(
+        user_message="Command generation failed",
+        return_value="<div style='color: red;'>Failed to generate commands</div>",
+    )
+    def generate_imei_commands_wrapped(full_df, model, station_id, test_case):
+        """Wrapper for generate_imei_commands with error handling."""
+        logger.info("=" * 60)
+        logger.info("IMEI COMMAND GENERATION TRIGGERED!")
+        logger.info(f"Model: {model}")
+        logger.info(f"Station ID: {station_id}")
+        logger.info(f"Test Case: {test_case}")
+        logger.info(f"Full DF type: {type(full_df)}, is None: {full_df is None}")
+        logger.info("=" * 60)
+
+        # Add immediate response to show function was called
+        import time
+
+        logger.info(f"Function called at: {time.time()}")
+
+        if not model or not station_id or not test_case:
+            logger.warning(
+                f"Missing parameters: model={model}, station_id={station_id}, test_case={test_case}"
+            )
+            return "<div style='color: red;'>Missing parameters for command generation</div>"
+
+        if full_df is None:
+            logger.error("Full dataframe is None")
+            return "<div style='color: red;'>No data available for command generation. Please analyze repeated failures first.</div>"
+
+        result = generate_imei_commands(full_df, model, station_id, test_case)
+        logger.info(f"Command generation result length: {len(result) if result else 0}")
+        return result
 
     @capture_exceptions(user_message="Advanced filtering failed", return_value=None)
     def apply_filter_and_sort_wrapped(
@@ -1915,19 +2283,10 @@ with gr.Blocks(
     analyze_failures_button.click(
         analyze_repeated_failures_wrapped,
         inputs=[file_input, min_failures],
-        outputs=[failures_summary, failures_chart, failures_df, test_case_filter],
-    )
-
-    sort_by.change(
-        update_summary_chart_and_data_wrapped,
-        inputs=[failures_df, sort_by, test_case_filter],
-        outputs=[failures_summary, failures_chart, failures_df],
-    )
-
-    test_case_filter.change(
-        update_summary_chart_and_data_wrapped,
-        inputs=[failures_df, sort_by, test_case_filter],
-        outputs=[failures_summary, failures_chart, failures_df],
+        outputs=[failures_summary, failures_chart, test_case_filter, full_df_state],
+    ).then(
+        lambda: "",  # Clear the command generation HTML
+        outputs=[command_generation_html],
     )
 
     # Add select/clear all handler
@@ -1935,6 +2294,110 @@ with gr.Blocks(
         handle_test_case_selection_wrapped,
         inputs=[test_case_filter],
         outputs=[test_case_filter],
+    )
+
+    # JavaScript event handling for HTML table row clicks
+    def handle_row_click_event(model, station, test_case, full_df):
+        """Handle row click from JavaScript event"""
+        logger.info(f"Row clicked: {model}, {station}, {test_case}")
+        if model and station and test_case and full_df is not None:
+            commands_html = generate_imei_commands_wrapped(
+                full_df, model, station, test_case
+            )
+            # Wrap the commands in a script to inject them into the right place
+            return f"""
+            {commands_html}
+            <script>
+                // Inject the command UI into the proper location
+                setTimeout(() => {{
+                    const commandHtml = document.getElementById('command-ui');
+                    if (commandHtml) {{
+                        const injectionPoint = document.getElementById('command_generation_injection_point');
+                        if (injectionPoint) {{
+                            injectionPoint.innerHTML = '';
+                            injectionPoint.appendChild(commandHtml);
+                        }}
+                    }}
+                }}, 100);
+            </script>
+            """
+        return ""
+
+    # Connect the JavaScript trigger
+    js_trigger.click(
+        handle_row_click_event,
+        inputs=[js_model, js_station, js_test_case, full_df_state],
+        outputs=[command_generation_html],
+    )
+
+    # Set up polling mechanism to check for row clicks
+    polling_state = gr.State({"last_check": 0})
+
+    def poll_for_row_clicks(polling_state, full_df):
+        """Check if a row was clicked and generate commands if so"""
+        import time
+
+        current_time = time.time()
+
+        # Only check every 0.5 seconds
+        if current_time - polling_state.get("last_check", 0) < 0.5:
+            return gr.update(), polling_state
+
+        polling_state["last_check"] = current_time
+
+        # JavaScript to check for selected row
+        check_js = """
+        <script>
+        (function() {
+            const data = window.selectedRowData;
+            if (data && !window.processingCommand) {
+                window.processingCommand = true;
+                console.log('Processing row click:', data);
+
+                // Call the command generation
+                window.onFailureRowClick = function(model, station, testCase) {
+                    // Set values in hidden inputs
+                    const setInput = (id, value) => {
+                        const elem = document.querySelector(`#${id} textarea`) || document.querySelector(`#${id} input`);
+                        if (elem) {
+                            elem.value = value;
+                            elem.dispatchEvent(new Event('input', { bubbles: true }));
+                            elem.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                    };
+
+                    setInput('js_model', model);
+                    setInput('js_station', station);
+                    setInput('js_test_case', testCase);
+
+                    // Click the trigger button
+                    setTimeout(() => {
+                        const btn = document.querySelector('#js_trigger button');
+                        if (btn) {
+                            btn.click();
+                            window.selectedRowData = null;
+                            window.processingCommand = false;
+                        }
+                    }, 200);
+                };
+
+                // Trigger the handler
+                if (window.onFailureRowClick) {
+                    window.onFailureRowClick(data.model, data.station, data.testCase);
+                }
+            }
+        })();
+        </script>
+        """
+
+        return check_js, polling_state
+
+    # Set up timer to poll every 500ms
+    timer = gr.Timer(0.5)
+    timer.tick(
+        poll_for_row_clicks,
+        inputs=[polling_state, full_df_state],
+        outputs=[command_generation_html, polling_state],
     )
 
     apply_filter_button.click(

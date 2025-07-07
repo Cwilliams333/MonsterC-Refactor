@@ -18,7 +18,9 @@ logger = get_logger(__name__)
 
 
 @capture_exceptions(user_message="Failed to analyze WiFi errors")
-def analyze_wifi_errors(file, error_threshold: int = 9) -> Tuple[
+def analyze_wifi_errors(
+    file, error_threshold: int = 9
+) -> Tuple[
     Optional[pd.DataFrame],
     Optional[go.Figure],
     Optional[pd.DataFrame],
@@ -49,17 +51,16 @@ def analyze_wifi_errors(file, error_threshold: int = 9) -> Tuple[
 
             df = load_data(file)
 
-        # Convert timestamp string to datetime
-        df = df.assign(
-            DateTime=pd.to_datetime(
-                df["Date"] + " " + df["Hour"], format="%m/%d/%Y %H:%M:%S"
-            ),
+        # Create DateTime column first
+        datetime_col = pd.to_datetime(
+            df["Date"] + " " + df["Hour"], format="%m/%d/%Y %H:%M:%S"
         )
 
-        # Extract date and hour components
+        # Create all new columns at once to avoid fragmentation
         df = df.assign(
-            DateOnly=lambda x: x["DateTime"].dt.date,
-            HourOfDay=lambda x: x["DateTime"].dt.hour,
+            DateTime=datetime_col,
+            DateOnly=datetime_col.dt.date,
+            HourOfDay=datetime_col.dt.hour,
         )
 
         # Get timeline bounds

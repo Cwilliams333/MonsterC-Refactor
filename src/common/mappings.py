@@ -34,42 +34,48 @@ TEST_TO_RESULT_FAIL_MAP: Dict[str, List[str]] = {
 
 # Station ID to machine/location mapping
 STATION_TO_MACHINE: Dict[str, str] = {
+    # B56 Red Primary (bertta56)
     "radi135": "B56 Red Primary",
-    "radi138": "B56 Red Primary",
     "radi115": "B56 Red Primary",
+    "radi138": "B56 Red Primary",
+    "radi133": "B56 Red Primary",
     "radi163": "B56 Red Primary",
     "radi185": "B56 Red Primary",
-    "radi133": "B56 Red Primary",
+    # B18 Red Secondary (bertta18)
+    "radi116": "B18 Red Secondary",
+    "radi183": "B18 Red Secondary",
+    "radi162": "B18 Red Secondary",
     "radi160": "B18 Red Secondary",
     "radi161": "B18 Red Secondary",
-    "radi162": "B18 Red Secondary",
     "radi181": "B18 Red Secondary",
-    "radi183": "B18 Red Secondary",
-    "radi116": "B18 Red Secondary",
+    # B25 Green Secondary (bertta25)
     "radi154": "B25 Green Secondary",
-    "radi155": "B25 Green Secondary",
-    "radi156": "B25 Green Secondary",
-    "radi166": "B25 Green Secondary",
     "radi158": "B25 Green Secondary",
+    "radi166": "B25 Green Secondary",
+    "radi156": "B25 Green Secondary",
     "radi157": "B25 Green Secondary",
-    "radi149": "B17 Green Primary",
-    "radi151": "B17 Green Primary",
-    "radi152": "B17 Green Primary",
-    "radi165": "B17 Green Primary",
+    "radi155": "B25 Green Secondary",
+    # B17 Green Primary (bertta17)
     "radi164": "B17 Green Primary",
+    "radi152": "B17 Green Primary",
     "radi153": "B17 Green Primary",
-    "radi079": "B24 Manual Trades",
+    "radi165": "B17 Green Primary",
+    "radi151": "B17 Green Primary",
+    "radi149": "B17 Green Primary",
+    # B24 Manual Trades (bertta24)
     "radi044": "B24 Manual Trades",
     "radi041": "B24 Manual Trades",
-    "radi055": "B22 Manual Core",
-    "radi052": "B22 Manual Core",
-    "radi058": "B22 Manual Core",
-    "radi056": "B22 Manual Core",
-    "radi078": "B22 Manual Core",
+    "radi079": "B24 Manual Trades",
+    # B22 Manual Core (bertta22)
     "radi062": "B22 Manual Core",
+    "radi056": "B22 Manual Core",
+    "radi058": "B22 Manual Core",
+    "radi052": "B22 Manual Core",
+    "radi055": "B22 Manual Core",
+    "radi078": "B22 Manual Core",
     "radi081": "B22 Manual Core",
-    # LS NPI Area
-    "radi117": "B56 NPI Area",
+    # B103 NPI (bertta103)
+    "radi117": "B103 NPI",
     # New Bertta37 DHL stations
     "radi173": "B37 Packers",
     "radi177": "B37 Packers",

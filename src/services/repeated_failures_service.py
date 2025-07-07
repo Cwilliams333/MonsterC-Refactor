@@ -64,6 +64,9 @@ def create_summary(df: pd.DataFrame) -> str:
             </p>
         </div>
 
+        <!-- Command Generation Container - Commands will be injected here dynamically -->
+        <div id="command_generation_injection_point"></div>
+
         <!-- Table Container -->
         <div style="background: white; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.08); overflow: hidden;">
             <table style="width: 100%; border-collapse: collapse; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
@@ -83,6 +86,11 @@ def create_summary(df: pd.DataFrame) -> str:
                         <th style="padding: 15px; text-align: left; color: white; font-weight: 600; font-size: 21px; border-right: 1px solid rgba(255,255,255,0.1);">
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <span style="opacity: 0.8;">🏭</span> Station
+                            </div>
+                        </th>
+                        <th style="padding: 15px; text-align: left; color: white; font-weight: 600; font-size: 21px; border-right: 1px solid rgba(255,255,255,0.1);">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="opacity: 0.8;">👤</span> Operator
                             </div>
                         </th>
                         <th style="padding: 15px; text-align: left; color: white; font-weight: 600; font-size: 21px; border-right: 1px solid rgba(255,255,255,0.1);">
@@ -134,12 +142,19 @@ def create_summary(df: pd.DataFrame) -> str:
         model_escaped = html.escape(str(row["Model"]))
         model_code_escaped = html.escape(str(row["Model Code"]))
         station_id_escaped = html.escape(str(row["Station ID"]))
+        operator_escaped = html.escape(str(row["Operator"]))
         result_fail_escaped = html.escape(str(row["result_FAIL"]))
 
+        # Escape single quotes for JavaScript
+        model_js_escaped = model_escaped.replace("'", "\\'")
+        station_js_escaped = station_id_escaped.replace("'", "\\'")
+        result_fail_js_escaped = result_fail_escaped.replace("'", "\\'")
+
         html_content += f"""
-                    <tr style="background: {row_bg}; transition: all 0.2s ease;"
+                    <tr style="background: {row_bg}; transition: all 0.2s ease; cursor: pointer;"
                         onmouseover="this.style.background='linear-gradient(90deg, {severity_bg} 0%, rgba(255,255,255,0) 100%)'; this.style.transform='translateX(5px)';"
-                        onmouseout="this.style.background='{row_bg}'; this.style.transform='translateX(0)';">
+                        onmouseout="this.style.background='{row_bg}'; this.style.transform='translateX(0)';"
+                        onclick="window.handleFailureRowClick('{model_js_escaped}', '{station_js_escaped}', '{result_fail_js_escaped}', {idx})">
                         <td style="padding: 12px 15px; border-bottom: 1px solid #e9ecef; font-size: 21px; font-weight: 500; color: #333;">
                             {model_escaped}
                         </td>
@@ -148,6 +163,9 @@ def create_summary(df: pd.DataFrame) -> str:
                         </td>
                         <td style="padding: 12px 15px; border-bottom: 1px solid #e9ecef; font-size: 19.5px; color: #495057;">
                             {station_id_escaped}
+                        </td>
+                        <td style="padding: 12px 15px; border-bottom: 1px solid #e9ecef; font-size: 19.5px; color: #495057;">
+                            {operator_escaped}
                         </td>
                         <td style="padding: 12px 15px; border-bottom: 1px solid #e9ecef; font-size: 19.5px; color: #333; max-width: 300px;">
                             <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;" title="{result_fail_escaped}">
@@ -283,7 +301,58 @@ def create_summary(df: pd.DataFrame) -> str:
             transform: translateY(-3px) !important;
             box-shadow: 0 8px 25px rgba(0,0,0,0.15) !important;
         }
+
+        /* Highlight selected row */
+        tr.selected-row {
+            background: linear-gradient(90deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%) !important;
+        }
     </style>
+
+    <script>
+        // Global variable to store the current selected row
+        window.selectedRowIndex = null;
+
+        // Function to handle row clicks from the HTML table
+        window.handleFailureRowClick = function(model, station, testCase, rowIndex) {
+            console.log('Row clicked:', model, station, testCase, rowIndex);
+
+            // Remove previous selection highlight
+            document.querySelectorAll('tr.selected-row').forEach(row => {
+                row.classList.remove('selected-row');
+            });
+
+            // Add selection highlight to clicked row
+            const clickedRow = document.querySelectorAll('tbody tr')[rowIndex];
+            if (clickedRow) {
+                clickedRow.classList.add('selected-row');
+            }
+
+            // Store selected row index and data
+            window.selectedRowIndex = rowIndex;
+            window.selectedRowData = { model, station, testCase };
+
+            // Show loading state in injection point
+            const injectionPoint = document.getElementById('command_generation_injection_point');
+            if (injectionPoint) {
+                injectionPoint.innerHTML = '<div style="text-align: center; padding: 20px;"><div style="display: inline-block; width: 40px; height: 40px; border: 3px solid #f3f3f3; border-top: 3px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite;"></div><p style="margin-top: 10px; color: #667eea;">Generating commands...</p></div>';
+            }
+
+            // Call the external handler if it exists
+            if (window.onFailureRowClick) {
+                window.onFailureRowClick(model, station, testCase);
+            }
+        };
+
+        // Function to inject command UI into the proper location
+        window.injectCommandUI = function(commandHtml) {
+            const injectionPoint = document.getElementById('command_generation_injection_point');
+            if (injectionPoint) {
+                injectionPoint.innerHTML = commandHtml;
+                // Scroll to the command UI smoothly
+                injectionPoint.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        };
+    </script>
     """
 
     return html_content
@@ -305,7 +374,7 @@ def create_plot(df: pd.DataFrame) -> go.Figure:
         x="Station ID",
         y="TC Count",
         color="Model",
-        hover_data=["result_FAIL", "IMEI Count"],
+        hover_data=["result_FAIL", "Operator", "IMEI Count"],
         title=f"Filtered Repeated Failures",
         labels={"TC Count": "Number of Test Case Failures"},
         height=600,
@@ -325,7 +394,7 @@ def create_plot(df: pd.DataFrame) -> go.Figure:
 @capture_exceptions(user_message="Failed to analyze repeated failures")
 def analyze_repeated_failures(
     df: pd.DataFrame, min_failures: int = 4
-) -> Tuple[str, Any, Any, Any]:
+) -> Tuple[str, Any, Any, Any, pd.DataFrame]:
     """
     Analyzes repeated failures in test data and returns summary, chart, and interactive components.
 
@@ -334,7 +403,7 @@ def analyze_repeated_failures(
         min_failures: Minimum number of failures to be considered "repeated"
 
     Returns:
-        Tuple of (summary_text, figure, interactive_dataframe, dropdown)
+        Tuple of (summary_text, figure, interactive_dataframe, dropdown, original_dataframe)
     """
     try:
         # If df is a file object, load it first
@@ -347,9 +416,9 @@ def analyze_repeated_failures(
         failure_df = df[df["Overall status"] == "FAILURE"]
         logger.info(f"Found {len(failure_df)} failures")
 
-        # Create initial aggregation with both counts
+        # Create initial aggregation with both counts and operator info
         agg_df = (
-            failure_df.groupby(["Model", "Station ID", "result_FAIL"])
+            failure_df.groupby(["Model", "Station ID", "result_FAIL", "Operator"])
             .agg({"IMEI": ["count", "nunique"]})
             .reset_index()
         )
@@ -359,6 +428,7 @@ def analyze_repeated_failures(
             "Model",
             "Station ID",
             "result_FAIL",
+            "Operator",
             "TC Count",
             "IMEI Count",
         ]
@@ -384,7 +454,7 @@ def analyze_repeated_failures(
             x="Station ID",
             y="TC Count",
             color="Model",
-            hover_data=["result_FAIL", "IMEI Count"],
+            hover_data=["result_FAIL", "Operator", "IMEI Count"],
             title=f"Repeated Failures (≥{min_failures} times)",
             labels={"TC Count": "Number of Test Case Failures"},
             height=600,
@@ -396,18 +466,6 @@ def analyze_repeated_failures(
             xaxis_tickangle=-45,
             legend_title="Model",
             barmode="group",
-        )
-
-        # Create interactive dataframe with explicit column names
-        interactive_df = gr.Dataframe(
-            value=repeated_failures,
-            headers=repeated_failures.columns.tolist(),
-            interactive=True,
-            type="pandas",  # Specify the type as pandas
-            show_label=True,
-            label="Repeated Failures Analysis",
-            column_widths=None,
-            wrap=True,  # Enable column reordering
         )
 
         # Get test cases for dropdown
@@ -423,13 +481,13 @@ def analyze_repeated_failures(
         return (
             summary,
             fig,
-            interactive_df,
             gr.Dropdown(
                 choices=dropdown_choices,
                 value=dropdown_choices[2:],
                 label="Filter by Test Case",
                 multiselect=True,
             ),
+            df,  # Return the original dataframe for command generation
         )
 
     except Exception as e:
@@ -447,10 +505,9 @@ def analyze_repeated_failures(
 @capture_exceptions(user_message="Failed to update summary chart and data")
 def update_summary_chart_and_data(
     repeated_failures_df: pd.DataFrame, sort_by: str, selected_test_cases: List[str]
-) -> Tuple[str, go.Figure, gr.Dataframe]:
+) -> Tuple[str, go.Figure]:
     """
-    Updates the summary chart, interactive dataframe, and test case filter options
-    based on sorting and filtering preferences.
+    Updates the summary chart based on sorting and filtering preferences.
 
     Args:
         repeated_failures_df: Input dataframe with repeated failures data
@@ -458,12 +515,12 @@ def update_summary_chart_and_data(
         selected_test_cases: List of selected test cases to filter by
 
     Returns:
-        Tuple of (summary_text, plotly_figure, interactive_dataframe)
+        Tuple of (summary_text, plotly_figure)
     """
 
     # Check for no data
     if repeated_failures_df is None or len(repeated_failures_df) == 0:
-        return "No data available to sort/filter", None, gr.Dataframe()
+        return "No data available to sort/filter", None
 
     # Make a copy of the dataframe so we don't modify the original
     df = repeated_failures_df.copy()
@@ -490,6 +547,7 @@ def update_summary_chart_and_data(
         "TC Count": "TC Count",
         "Model": "Model",
         "Station ID": "Station ID",
+        "Operator": "Operator",
         "Test Case": "result_FAIL",
         "Model Code": "Model Code",
     }
@@ -507,8 +565,8 @@ def update_summary_chart_and_data(
         label="Filtered Repeated Failures",
     )
 
-    # Return the updated summary text, plotly figure, and interactive dataframe
-    return create_summary(df), create_plot(df), interactive_df
+    # Return the updated summary text and plotly figure
+    return create_summary(df), create_plot(df)
 
 
 @capture_exceptions(user_message="Failed to update summary")
@@ -557,8 +615,9 @@ def update_summary(
             "TC Count": "TC Count",
             "Model": "Model",
             "Station ID": "Station ID",
+            "Operator": "Operator",
             "Test Case": "result_FAIL",
-            "Model Code": "Model Code",  # Add this line to support sorting by Model Code
+            "Model Code": "Model Code",
         }
         df = df.sort_values(sort_column_map[sort_by], ascending=False)
 
@@ -595,3 +654,166 @@ def handle_test_case_selection(
     elif evt.value == "Clear All":
         return []
     return selected_test_cases
+
+
+@capture_exceptions(user_message="Failed to generate IMEI commands")
+def generate_imei_commands(
+    full_df: pd.DataFrame, model: str, station_id: str, test_case: str
+) -> str:
+    """
+    Generate db-export commands for failed IMEIs based on the selected row.
+
+    Args:
+        full_df: The original full dataframe with all test data
+        model: The model from the clicked row
+        station_id: The station ID from the clicked row
+        test_case: The test case (result_FAIL) from the clicked row
+
+    Returns:
+        HTML string containing the command generation UI with proper db-export commands
+    """
+    logger.info("=" * 60)
+    logger.info("generate_imei_commands called!")
+    logger.info(f"Model: {model}")
+    logger.info(f"Station ID: {station_id}")
+    logger.info(f"Test Case: {test_case}")
+    logger.info(f"Full DF shape: {full_df.shape if full_df is not None else 'None'}")
+    logger.info("=" * 60)
+
+    try:
+        if full_df is None or full_df.empty:
+            logger.warning("No data available in full_df")
+            return (
+                '<div style="color: red;">No data available to generate commands.</div>'
+            )
+
+        # Filter the dataframe for matching failures
+        filtered_df = full_df[
+            (full_df["Model"] == model)
+            & (full_df["Station ID"] == station_id)
+            & (full_df["result_FAIL"] == test_case)
+            & (full_df["Overall status"] == "FAILURE")
+        ]
+
+        logger.info(f"Filtered dataframe shape: {filtered_df.shape}")
+
+        if filtered_df.empty:
+            logger.warning("No matching failures found")
+            return '<div style="color: red;">No matching failures found for the selected criteria.</div>'
+
+        # Check if IMEI column exists
+        if "IMEI" not in filtered_df.columns:
+            logger.error("IMEI column not found in dataframe")
+            logger.info(f"Available columns: {filtered_df.columns.tolist()}")
+            return '<div style="color: red;">IMEI column not found in the data. Please ensure your CSV has an IMEI column.</div>'
+
+        # Get unique IMEIs
+        imeis = filtered_df["IMEI"].dropna().unique().tolist()
+        logger.info(f"Found {len(imeis)} unique IMEIs")
+
+        # Convert IMEIs to strings (handle float IMEIs)
+        imeis = [
+            str(int(float(imei))) if isinstance(imei, (int, float)) else str(imei)
+            for imei in imeis
+        ]
+        imei_count = len(imeis)
+        logger.info(f"Converted IMEIs: {imeis[:5]}...")  # Log first 5
+
+        # Handle case with no IMEIs
+        if not imeis:
+            logger.warning("No valid IMEIs found after conversion")
+            return '<div style="color: red;">No valid IMEIs found for the selected criteria.</div>'
+
+        # Generate the db-export commands
+        imei_args = " ".join([f"--dut {imei}" for imei in imeis])
+
+        # Create the three commands
+        messages_cmd = f"db-export messages {imei_args}"
+        gauge_cmd = f'db-export gauge --test "{test_case}" {imei_args}'
+        raw_data_cmd = f'db-export raw_data --test "{test_case}" {imei_args}'
+
+        # Escape for JavaScript - need to escape backticks and quotes
+        messages_cmd_js = (
+            messages_cmd.replace("\\", "\\\\").replace("`", "\\`").replace('"', '\\"')
+        )
+        gauge_cmd_js = (
+            gauge_cmd.replace("\\", "\\\\").replace("`", "\\`").replace('"', '\\"')
+        )
+        raw_data_cmd_js = (
+            raw_data_cmd.replace("\\", "\\\\").replace("`", "\\`").replace('"', '\\"')
+        )
+
+        # Create the HTML response with sleek markdown-style design
+        html_content = f"""
+        <div id="command-ui" style="margin: 15px 0; animation: slideDown 0.4s ease-out;">
+            <div style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 10px; padding: 20px;">
+                <div style="margin-bottom: 15px;">
+                    <h4 style="margin: 0 0 8px 0; color: #495057; font-size: 18px; font-weight: 600;">
+                        🔧 IMEI Extractor Commands
+                    </h4>
+                    <p style="margin: 0; color: #6c757d; font-size: 14px;">
+                        <strong>Selected:</strong> {html.escape(model)} | {html.escape(station_id)} | {html.escape(test_case)}<br>
+                        <strong>Found:</strong> {imei_count} failed IMEIs
+                    </p>
+                </div>
+
+                <!-- Messages Command -->
+                <div style="margin-bottom: 12px;">
+                    <p style="margin: 0 0 6px 0; color: #495057; font-size: 14px; font-weight: 500;">📨 Messages Command:</p>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <code style="flex: 1; background: #2d3748; color: #e2e8f0; padding: 12px 16px; border-radius: 6px; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; overflow-x: auto; white-space: nowrap; display: block;">
+                            {html.escape(messages_cmd)}
+                        </code>
+                        <button onclick='navigator.clipboard.writeText(`{messages_cmd_js}`).then(() => {{ this.innerHTML = "✓"; setTimeout(() => this.innerHTML = "📋", 2000); }})'
+                                style="background: #667eea; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s ease; flex-shrink: 0;"
+                                onmouseover="this.style.background='#5a67d8'" onmouseout="this.style.background='#667eea'">
+                            📋
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Gauge Command -->
+                <div style="margin-bottom: 12px;">
+                    <p style="margin: 0 0 6px 0; color: #495057; font-size: 14px; font-weight: 500;">📊 Gauge Command:</p>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <code style="flex: 1; background: #2d3748; color: #e2e8f0; padding: 12px 16px; border-radius: 6px; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; overflow-x: auto; white-space: nowrap; display: block;">
+                            {html.escape(gauge_cmd)}
+                        </code>
+                        <button onclick='navigator.clipboard.writeText(`{gauge_cmd_js}`).then(() => {{ this.innerHTML = "✓"; setTimeout(() => this.innerHTML = "📋", 2000); }})'
+                                style="background: #667eea; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s ease; flex-shrink: 0;"
+                                onmouseover="this.style.background='#5a67d8'" onmouseout="this.style.background='#667eea'">
+                            📋
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Raw Data Command -->
+                <div>
+                    <p style="margin: 0 0 6px 0; color: #495057; font-size: 14px; font-weight: 500;">💾 Raw Data Command:</p>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <code style="flex: 1; background: #2d3748; color: #e2e8f0; padding: 12px 16px; border-radius: 6px; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; overflow-x: auto; white-space: nowrap; display: block;">
+                            {html.escape(raw_data_cmd)}
+                        </code>
+                        <button onclick='navigator.clipboard.writeText(`{raw_data_cmd_js}`).then(() => {{ this.innerHTML = "✓"; setTimeout(() => this.innerHTML = "📋", 2000); }})'
+                                style="background: #667eea; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s ease; flex-shrink: 0;"
+                                onmouseover="this.style.background='#5a67d8'" onmouseout="this.style.background='#667eea'">
+                            📋
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <style>
+            @keyframes slideDown {{
+                from {{ opacity: 0; transform: translateY(-10px); }}
+                to {{ opacity: 1; transform: translateY(0); }}
+            }}
+        </style>
+        """
+
+        return html_content
+
+    except Exception as e:
+        logger.error(f"Error generating IMEI commands: {str(e)}")
+        return f'<div style="color: red;">Error generating commands: {html.escape(str(e))}</div>'
