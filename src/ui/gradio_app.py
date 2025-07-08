@@ -56,6 +56,7 @@ from src.services.repeated_failures_service import (
     update_summary_chart_and_data,
 )
 from src.services.wifi_error_service import analyze_wifi_errors
+from src.services.lcd_grading_service import analyze_lcd_grading, get_unique_models
 
 # Configure logging
 logger = get_logger(__name__)
@@ -1084,6 +1085,62 @@ with gr.Blocks(
                 **How to use:** Click the automation button above, then optionally explore the enhanced Tabulator interface!
                 """
                 )
+
+        with gr.TabItem("📊 LCD Grading Analysis"):
+            with gr.Row():
+                gr.Markdown("""
+                ### LCD Display Grading Analysis
+                
+                This tab analyzes LCD Grading 1 data to track display quality grades:
+                - **N** - No defects (Target: 97-98%)
+                - **F** - Faint defects (Target: ~2%)
+                - **S** - Severe defects (Target: ~1%)
+                
+                Filter by Source, OS, and Model to analyze grading distribution.
+                """)
+            
+            # Filtering controls
+            with gr.Row():
+                with gr.Column(scale=1):
+                    lcd_source_filter = gr.Radio(
+                        choices=["All", "Automated Trade-In", "Automated CRTC"],
+                        value="All",
+                        label="Source Profile",
+                        info="Trade-In: Older devices | CRTC: Newer devices"
+                    )
+                with gr.Column(scale=1):
+                    lcd_os_filter = gr.Radio(
+                        choices=["All", "Android", "iOS"],
+                        value="All",
+                        label="Operating System"
+                    )
+                with gr.Column(scale=2):
+                    lcd_model_filter = gr.Dropdown(
+                        label="Select Models (Optional)",
+                        choices=["All"],
+                        value=["All"],
+                        multiselect=True,
+                        info="Leave as 'All' for overall analysis"
+                    )
+            
+            with gr.Row():
+                lcd_analyze_button = gr.Button("🔍 Analyze LCD Grading", variant="primary", size="lg")
+                lcd_refresh_models_button = gr.Button("🔄 Refresh Model List", size="sm")
+            
+            # Results display
+            with gr.Row():
+                lcd_grading_html = gr.HTML(
+                    value="""
+                    <div style="text-align: center; padding: 40px; background: linear-gradient(135deg, #3498db 0%, #2980b9 100%); border-radius: 15px; color: white;">
+                        <h2 style="margin: 0; font-size: 28px;">📊 LCD Grading Analysis</h2>
+                        <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Click 'Analyze LCD Grading' to begin</p>
+                    </div>
+                    """,
+                    elem_id="lcd_grading_results"
+                )
+            
+            # Hidden state for analysis results
+            lcd_analysis_state = gr.State()
 
         with gr.TabItem("Advanced Filtering"):
             with gr.Row():
@@ -2454,6 +2511,69 @@ with gr.Blocks(
         generate_error_analysis_wrapped,
         inputs=[df, interactive_operator_filter],
         outputs=[interactive_pivot_status, interactive_pivot_iframe, view_selector_row],
+    )
+
+    # LCD Grading Analysis handlers
+    @capture_exceptions(
+        user_message="LCD Grading analysis failed",
+        return_value="""
+        <div style="text-align: center; padding: 40px; background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); border-radius: 15px; color: white;">
+            <h2 style="margin: 0; font-size: 24px;">⚠️ Analysis Error</h2>
+            <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Failed to analyze LCD Grading data</p>
+        </div>
+        """
+    )
+    def analyze_lcd_grading_wrapped(df, source_filter, os_filter, model_filter):
+        """Analyze LCD Grading data with filters."""
+        if df is None or df.empty:
+            return """
+            <div style="text-align: center; padding: 40px; background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); border-radius: 15px; color: white;">
+                <h2 style="margin: 0; font-size: 24px;">⚠️ No Data</h2>
+                <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Please upload a CSV file first</p>
+            </div>
+            """
+        
+        # Convert model filter for the service
+        if model_filter == ["All"] or not model_filter:
+            model_filter = None
+        
+        # Call the analysis service
+        result = analyze_lcd_grading(
+            df,
+            source_filter=source_filter if source_filter != "All" else None,
+            os_filter=os_filter if os_filter != "All" else None,
+            model_filter=model_filter
+        )
+        
+        return result['html']
+    
+    def refresh_model_list(df):
+        """Refresh the model list based on current data."""
+        if df is None or df.empty:
+            return gr.update(choices=["All"], value=["All"])
+        
+        models = get_unique_models(df, operator_filter=True)
+        if models:
+            return gr.update(choices=["All"] + models, value=["All"])
+        return gr.update(choices=["All"], value=["All"])
+    
+    lcd_analyze_button.click(
+        analyze_lcd_grading_wrapped,
+        inputs=[df, lcd_source_filter, lcd_os_filter, lcd_model_filter],
+        outputs=[lcd_grading_html]
+    )
+    
+    lcd_refresh_models_button.click(
+        refresh_model_list,
+        inputs=[df],
+        outputs=[lcd_model_filter]
+    )
+    
+    # Also update model list when file is uploaded
+    file_input.change(
+        lambda df: refresh_model_list(df) if df is not None else gr.update(),
+        inputs=[df],
+        outputs=[lcd_model_filter]
     )
 
     process_button.click(
