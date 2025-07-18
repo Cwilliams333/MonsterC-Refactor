@@ -6,6 +6,7 @@ This module implements the Strangler Fig pattern - creating a new UI shell that 
 """
 
 import atexit
+import html
 import json
 import os
 import subprocess
@@ -54,6 +55,7 @@ from src.services.repeated_failures_service import (
     generate_imei_commands,
     handle_test_case_selection,
     update_summary_chart_and_data,
+    handle_remote_command_execution,
 )
 from src.services.wifi_error_service import analyze_wifi_errors
 from src.services.lcd_grading_service import analyze_lcd_grading, get_unique_models
@@ -440,6 +442,67 @@ window.handleFailureRowClick = function(model, stationId, testCase, rowIdx) {
     }
 };
 
+// Add event listener for remote command execution
+window.addEventListener('runRemoteCommand', function(event) {
+    console.log('Remote command event received:', event.detail);
+    const { machine, command, type } = event.detail;
+    
+    // Add delay to ensure DOM is ready
+    setTimeout(() => {
+        // Find the hidden inputs and trigger button for remote execution
+        const machineInput = document.querySelector('#js_remote_machine textarea') || 
+                            document.querySelector('#js_remote_machine input');
+        const commandInput = document.querySelector('#js_remote_command textarea') || 
+                            document.querySelector('#js_remote_command input');
+        const typeInput = document.querySelector('#js_remote_type textarea') || 
+                           document.querySelector('#js_remote_type input');
+        const triggerButton = document.querySelector('#js_remote_trigger button') || 
+                             document.querySelector('#js_remote_trigger');
+        
+        console.log('Found elements:', {
+            machineInput: !!machineInput,
+            commandInput: !!commandInput,
+            typeInput: !!typeInput,
+            triggerButton: !!triggerButton
+        });
+        
+        if (machineInput && commandInput && typeInput && triggerButton) {
+            // Set the values
+            machineInput.value = machine;
+            commandInput.value = command;
+            typeInput.value = type;
+            
+            console.log('Set values:', {
+                machine: machineInput.value,
+                command: commandInput.value.substring(0, 50) + '...',
+                type: typeInput.value
+            });
+            
+            // Force Gradio to recognize the change
+            const inputEvent = new Event('input', { bubbles: true });
+            const changeEvent = new Event('change', { bubbles: true });
+            
+            machineInput.dispatchEvent(inputEvent);
+            commandInput.dispatchEvent(inputEvent);
+            typeInput.dispatchEvent(inputEvent);
+            
+            machineInput.dispatchEvent(changeEvent);
+            commandInput.dispatchEvent(changeEvent);
+            typeInput.dispatchEvent(changeEvent);
+            
+            // Click the trigger button
+            setTimeout(() => {
+                console.log('Clicking trigger button...');
+                triggerButton.click();
+                console.log('Remote execution triggered');
+            }, 100);
+        } else {
+            console.error('Could not find remote command components');
+            showNotification('error', 'Failed to trigger remote command execution');
+        }
+    }, 100);  // Delay for DOM readiness
+});
+
 // Monitor for command UI generation and move it to the injection point
 const observer = new MutationObserver(function(mutations) {
     mutations.forEach(function(mutation) {
@@ -453,6 +516,26 @@ const observer = new MutationObserver(function(mutations) {
             // Move the command UI to the injection point
             injectionPoint.innerHTML = '';
             injectionPoint.appendChild(commandUI);
+        }
+        
+        // Check for remote execution result and reset buttons
+        const remoteResult = container ? container.querySelector('#remote-execution-result') : null;
+        if (remoteResult && window.remoteCommandInProgress) {
+            console.log('Remote execution result detected, resetting buttons');
+            window.resetRemoteCommandButtons();
+            
+            // Also execute any scripts in the response
+            const scripts = container.querySelectorAll('script');
+            scripts.forEach(script => {
+                if (script.innerHTML.includes('resetRemoteCommandButtons')) {
+                    console.log('Executing script from response');
+                    try {
+                        eval(script.innerHTML);
+                    } catch (e) {
+                        console.error('Error executing script:', e);
+                    }
+                }
+            });
         }
     });
 });
@@ -476,6 +559,19 @@ setInterval(() => {
         window.debugRowsFound = true;
     }
 }, 2000);
+
+// Periodically check for stuck buttons and reset them if command is not in progress
+setInterval(() => {
+    if (!window.remoteCommandInProgress) {
+        const stuckButtons = document.querySelectorAll('button:disabled[title^="Run command"], button.run-command-button:disabled, button:contains("⏳")');
+        const hourglassButtons = Array.from(document.querySelectorAll('button')).filter(btn => btn.innerHTML === '⏳');
+        
+        if (stuckButtons.length > 0 || hourglassButtons.length > 0) {
+            console.log('Found stuck buttons, resetting...');
+            window.resetRemoteCommandButtons();
+        }
+    }
+}, 5000);
 
 // Store row data globally
 window.selectedRowData = null;
@@ -535,6 +631,407 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
+
+// Define runRemoteCommand globally so it's available for dynamically generated HTML
+window.runRemoteCommand = function(machineName, command, commandType) {
+    console.log('=== runRemoteCommand CALLED ===');
+    console.log('Machine Name:', machineName);
+    console.log('Command Type:', commandType);
+    console.log('Full Command:', command);
+    console.log('===============================');
+    
+    // Disable all run buttons to prevent multiple executions
+    const runButtons = document.querySelectorAll('button[title^="Run command"], button.run-command-button');
+    runButtons.forEach(btn => {
+        btn.disabled = true;
+        btn.innerHTML = '⏳';
+    });
+    
+    // Show notification that command is being executed
+    if (window.showNotification) {
+        window.showNotification('info', `Executing ${commandType} command on ${machineName}...`);
+    }
+    
+    // Store button state for recovery
+    window.remoteCommandInProgress = true;
+    
+    // Set up a failsafe to re-enable buttons after 30 seconds
+    window.remoteCommandTimeout = setTimeout(() => {
+        console.log('Failsafe: Re-enabling buttons after timeout');
+        window.resetRemoteCommandButtons();
+    }, 30000);
+    
+    // Trigger the remote execution via Gradio
+    const event = new CustomEvent('runRemoteCommand', {
+        detail: {
+            machine: machineName,
+            command: command,
+            type: commandType
+        }
+    });
+    window.dispatchEvent(event);
+};
+
+// Function to reset button states
+window.resetRemoteCommandButtons = function() {
+    console.log('Resetting remote command buttons');
+    const runButtons = document.querySelectorAll('button[title^="Run command"], button.run-command-button');
+    runButtons.forEach(btn => {
+        btn.disabled = false;
+        btn.innerHTML = '▶️';
+        btn.style.cursor = 'pointer';
+    });
+    
+    // Also check for any hourglass buttons
+    document.querySelectorAll('button').forEach(btn => {
+        if (btn.innerHTML === '⏳') {
+            btn.disabled = false;
+            btn.innerHTML = '▶️';
+            btn.style.cursor = 'pointer';
+        }
+    });
+    
+    // Clear the timeout if it exists
+    if (window.remoteCommandTimeout) {
+        clearTimeout(window.remoteCommandTimeout);
+        window.remoteCommandTimeout = null;
+    }
+    
+    window.remoteCommandInProgress = false;
+};
+
+// Define showNotification globally for use in dynamically generated HTML
+window.showNotification = function(type, message) {
+    console.log('showNotification called:', type, message);
+    
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 10000;
+        animation: slideInRight 0.3s ease-out;
+        max-width: 400px;
+    `;
+    
+    // Style based on type
+    if (type === 'success') {
+        notification.style.background = '#4caf50';
+        notification.style.color = 'white';
+        notification.innerHTML = `✅ ${message}`;
+    } else if (type === 'error') {
+        notification.style.background = '#f44336';
+        notification.style.color = 'white';
+        notification.innerHTML = `❌ ${message}`;
+    } else {
+        notification.style.background = '#2196F3';
+        notification.style.color = 'white';
+        notification.innerHTML = `ℹ️ ${message}`;
+    }
+    
+    document.body.appendChild(notification);
+    
+    // Remove after 5 seconds
+    setTimeout(() => {
+        notification.style.animation = 'slideOutRight 0.3s ease-in';
+        setTimeout(() => notification.remove(), 300);
+    }, 5000);
+};
+
+// Define reEnableRunButtons globally for reliable re-enabling
+window.reEnableRunButtons = function() {
+    console.log('reEnableRunButtons called');
+    
+    // Re-enable all run buttons with multiple selectors
+    const runButtons = document.querySelectorAll('button[title^="Run command"], button.run-command-button');
+    console.log('Found', runButtons.length, 'run buttons to re-enable');
+    
+    runButtons.forEach(btn => {
+        btn.disabled = false;
+        btn.innerHTML = '▶️';
+        btn.style.cursor = 'pointer';
+    });
+    
+    // Also check for buttons that might have been dynamically added or have hourglass
+    const allButtons = document.querySelectorAll('button');
+    allButtons.forEach(btn => {
+        if (btn.innerHTML === '⏳') {
+            btn.disabled = false;
+            btn.innerHTML = '▶️';
+            btn.style.cursor = 'pointer';
+        }
+    });
+};
+
+// Add animation styles for notifications if they don't exist
+if (!document.getElementById('notification-animations')) {
+    const notificationStyle = document.createElement('style');
+    notificationStyle.id = 'notification-animations';
+    notificationStyle.textContent = `
+        @keyframes slideInRight {
+            from { opacity: 0; transform: translateX(100px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes slideOutRight {
+            from { opacity: 1; transform: translateX(0); }
+            to { opacity: 0; transform: translateX(100px); }
+        }
+        
+        /* CSV Popup styles */
+        .csv-popup-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            animation: fadeIn 0.3s ease-out;
+        }
+        
+        .csv-popup-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            width: 90%;
+            max-width: 1200px;
+            height: 80%;
+            max-height: 800px;
+            display: flex;
+            flex-direction: column;
+            animation: slideUp 0.3s ease-out;
+        }
+        
+        .csv-popup-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px 12px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .csv-popup-body {
+            flex: 1;
+            overflow: auto;
+            padding: 20px;
+            background: #f8f9fa;
+        }
+        
+        .csv-popup-close {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: background 0.2s;
+        }
+        
+        .csv-popup-close:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .csv-download-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            margin-right: 10px;
+        }
+        
+        .csv-download-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-1px);
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        @keyframes slideUp {
+            from { transform: translateY(50px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        
+        /* Prevent body scroll when popup is open */
+        body.csv-popup-open {
+            overflow: hidden;
+        }
+    `;
+    document.head.appendChild(notificationStyle);
+}
+
+// CSV Popup functions
+window.showCSVPopup = function(filename, csvContent) {
+    console.log('showCSVPopup called:', filename);
+    console.log('CSV content length:', csvContent ? csvContent.length : 0);
+    console.log('CSV content preview:', csvContent ? csvContent.substring(0, 100) : 'No content');
+    
+    try {
+        // Parse CSV content
+        const lines = csvContent.split('\\n');
+        console.log('Number of lines:', lines.length);
+        const headers = lines[0] ? lines[0].split(',') : [];
+        
+        // Create table HTML
+        let tableHtml = '<table style="width: 100%; border-collapse: collapse; font-size: 14px; background: white;">';
+        
+        // Headers
+        tableHtml += '<thead><tr style="background: #667eea; color: white; position: sticky; top: 0;">';
+        headers.forEach(header => {
+            tableHtml += `<th style="padding: 12px; border: 1px solid #ddd; text-align: left; font-weight: 600;">${escapeHtml(header.trim())}</th>`;
+        });
+        tableHtml += '</tr></thead>';
+        
+        // Body
+        tableHtml += '<tbody>';
+        for (let i = 1; i < lines.length; i++) {
+            if (lines[i].trim()) {
+                const cells = parseCSVLine(lines[i]);
+                const bgColor = i % 2 === 0 ? '#f8f9fa' : '#ffffff';
+                tableHtml += `<tr style="background: ${bgColor};">`;
+                cells.forEach(cell => {
+                    tableHtml += `<td style="padding: 10px; border: 1px solid #ddd;">${escapeHtml(cell)}</td>`;
+                });
+                tableHtml += '</tr>';
+            }
+        }
+        tableHtml += '</tbody></table>';
+        
+        // Create popup HTML
+        const popupHtml = `
+            <div class="csv-popup-overlay" id="csvPopupOverlay" onclick="if(event.target === this) window.closeCSVPopup()">
+                <div class="csv-popup-container">
+                    <div class="csv-popup-header">
+                        <h3 style="margin: 0; font-size: 20px; font-weight: 600;">📄 ${escapeHtml(filename)}</h3>
+                        <div style="display: flex; align-items: center;">
+                            <button class="csv-download-btn" onclick="window.downloadCSV('${escapeHtml(filename)}', this.getAttribute('data-csv-content'))">
+                                💾 Download CSV
+                            </button>
+                            <button class="csv-popup-close" onclick="window.closeCSVPopup()">✕</button>
+                        </div>
+                    </div>
+                    <div class="csv-popup-body">
+                        ${tableHtml}
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Add popup to body
+        console.log('Creating popup container...');
+        const popupDiv = document.createElement('div');
+        popupDiv.innerHTML = popupHtml;
+        
+        // Set the CSV content as a data attribute on the download button
+        const downloadBtn = popupDiv.querySelector('.csv-download-btn');
+        if (downloadBtn) {
+            downloadBtn.setAttribute('data-csv-content', csvContent);
+        }
+        
+        console.log('Appending popup to body...');
+        document.body.appendChild(popupDiv);
+        document.body.classList.add('csv-popup-open');
+        console.log('CSV popup added to DOM successfully');
+        
+        // Add escape key handler
+        document.addEventListener('keydown', window.csvPopupEscapeHandler);
+        
+    } catch (e) {
+        console.error('Error showing CSV popup:', e);
+        window.showNotification('error', 'Failed to display CSV content');
+    }
+};
+
+window.closeCSVPopup = function() {
+    console.log('Closing CSV popup');
+    const overlay = document.getElementById('csvPopupOverlay');
+    if (overlay) {
+        overlay.parentElement.remove();
+        document.body.classList.remove('csv-popup-open');
+        document.removeEventListener('keydown', window.csvPopupEscapeHandler);
+    }
+};
+
+window.csvPopupEscapeHandler = function(e) {
+    if (e.key === 'Escape') {
+        window.closeCSVPopup();
+    }
+};
+
+window.downloadCSV = function(filename, csvContent) {
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
+};
+
+// Helper function to escape HTML
+function escapeHtml(text) {
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return String(text).replace(/[&<>"']/g, m => map[m]);
+}
+
+// Helper function to parse CSV line properly handling quotes
+function parseCSVLine(line) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        const nextChar = line[i + 1];
+        
+        if (char === '"') {
+            if (inQuotes && nextChar === '"') {
+                current += '"';
+                i++; // Skip next quote
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (char === ',' && !inQuotes) {
+            result.push(current);
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    
+    result.push(current);
+    return result.map(s => s.trim());
+}
+
 </script>
 """
 
@@ -564,6 +1061,39 @@ with gr.Blocks(
     /* Allow the button to be clickable even when hidden */
     #command_gen_button {
         pointer-events: auto !important;
+    }
+    
+    /* CSV Display Container Styling */
+    #csv_display_container {
+        width: 100% !important;
+        min-height: 50px;
+        margin: 10px 0 !important;
+        position: relative !important;
+        z-index: 100 !important;
+    }
+    
+    .csv-table-container {
+        width: 100% !important;
+        display: block !important;
+        visibility: visible !important;
+    }
+    
+    /* Ensure CSV tables are properly styled */
+    #csv_display_container table {
+        width: 100% !important;
+        margin: 10px 0 !important;
+        background: #f8f9fa !important;
+        border-radius: 8px !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
+    }
+    
+    #csv_display_container .context-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 12px 20px;
+        border-radius: 8px 8px 0 0;
+        font-weight: 600;
+        margin-bottom: 0;
     }
 
     /* Base styles for markdown content */
@@ -891,6 +1421,7 @@ with gr.Blocks(
                     multiselect=True,
                 )
 
+            # First row: Orange repeated failures summary
             with gr.Row():
                 failures_summary = gr.HTML(
                     value="""
@@ -901,11 +1432,13 @@ with gr.Blocks(
                     """,
                     label="Repeated Failures Summary",
                 )
-
-            # Command Generation HTML - Will be populated dynamically between header and table
-            command_generation_html = gr.HTML(
-                value="", elem_id="command_generation_container"
-            )
+            
+            # Command Generation HTML - Will contain BOTH CSV and commands
+            with gr.Row():
+                command_generation_html = gr.HTML(
+                    value="", 
+                    elem_id="command_generation_container"
+                )
 
             # Hidden state to store the full dataframe for command generation
             full_df_state = gr.State()
@@ -917,6 +1450,12 @@ with gr.Blocks(
             selected_row_state = gr.State(
                 {"model": None, "station": None, "test_case": None}
             )
+            
+            # State to store current CSV content
+            csv_content_state = gr.State("")
+            
+            # State to store current commands HTML
+            commands_html_state = gr.State("")
 
             # Hidden components for JavaScript interaction
             with gr.Row(visible=False):
@@ -929,6 +1468,11 @@ with gr.Blocks(
                 )
                 js_trigger = gr.Button("Trigger", elem_id="js_trigger")
                 js_counter = gr.Number(value=0, elem_id="js_counter")
+                # Hidden components for remote command execution
+                js_remote_machine = gr.Textbox(value="", elem_id="js_remote_machine", interactive=True)
+                js_remote_command = gr.Textbox(value="", elem_id="js_remote_command", interactive=True)
+                js_remote_type = gr.Textbox(value="", elem_id="js_remote_type", interactive=True)
+                js_remote_trigger = gr.Button("Execute Remote", elem_id="js_remote_trigger")
 
             with gr.Row():
                 failures_chart = gr.Plot(label="Repeated Failures Chart")
@@ -2382,37 +2926,201 @@ with gr.Blocks(
     )
 
     # JavaScript event handling for HTML table row clicks
-    def handle_row_click_event(model, station, test_case, full_df):
+    def handle_row_click_event(model, station, test_case, full_df, csv_content):
         """Handle row click from JavaScript event"""
         logger.info(f"Row clicked: {model}, {station}, {test_case}")
         if model and station and test_case and full_df is not None:
             commands_html = generate_imei_commands_wrapped(
                 full_df, model, station, test_case
             )
-            # Wrap the commands in a script to inject them into the right place
-            return f"""
-            {commands_html}
-            <script>
-                // Inject the command UI into the proper location
-                setTimeout(() => {{
-                    const commandHtml = document.getElementById('command-ui');
-                    if (commandHtml) {{
-                        const injectionPoint = document.getElementById('command_generation_injection_point');
-                        if (injectionPoint) {{
-                            injectionPoint.innerHTML = '';
-                            injectionPoint.appendChild(commandHtml);
-                        }}
-                    }}
-                }}, 100);
-            </script>
+            # Always put CSV first, then commands
+            combined_html = f"""
+            <div id="combined-content">
+                {csv_content if csv_content else ""}
+                {commands_html}
+            </div>
             """
-        return ""
+            return combined_html, csv_content, commands_html
+        return "", "", ""
 
     # Connect the JavaScript trigger
     js_trigger.click(
         handle_row_click_event,
-        inputs=[js_model, js_station, js_test_case, full_df_state],
-        outputs=[command_generation_html],
+        inputs=[js_model, js_station, js_test_case, full_df_state, csv_content_state],
+        outputs=[command_generation_html, csv_content_state, commands_html_state],
+    )
+    
+    # Handler for remote command execution
+    def handle_remote_execution_event(machine, command, command_type, model, station, test_case, existing_commands_html):
+        """Handle remote command execution from JavaScript event"""
+        logger.info(f"Remote execution requested: {machine}, {command_type}")
+        logger.info(f"Context - Model: {model}, Station: {station}, Test: {test_case}")
+        
+        try:
+            result = handle_remote_command_execution(machine, command, command_type)
+            
+            # Build notification HTML for command_generation_html
+            if result['status'] == 'success':
+                message = f"Command executed successfully on {machine}"
+                if result.get('created_file'):
+                    message += f". Output file created: {result['created_file']}"
+                
+                output_html = f'<p style="margin: 10px 0 0 0; font-size: 14px; opacity: 0.9;">Output: {html.escape(result.get("output", "")[:200])}...</p>' if result.get('output') else ''
+                
+                command_notification_html = f"""
+                <div id="remote-execution-result" style="margin: 20px 0; padding: 20px; background: linear-gradient(135deg, #4caf50 0%, #45a049 100%); border-radius: 10px; color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+                    <h3 style="margin: 0 0 10px 0; font-size: 20px;">✅ Success!</h3>
+                    <p style="margin: 0; font-size: 16px;">{html.escape(message)}</p>
+                    {output_html}
+                </div>
+                <script>
+                    // Reset buttons using the global function
+                    if (window.resetRemoteCommandButtons) {{
+                        window.resetRemoteCommandButtons();
+                    }}
+                </script>
+                """
+                
+                # Handle CSV content separately for csv_display_html
+                csv_display_content = ""
+                csv_visible = False
+                if command_type == "messages" and result.get('csv_content'):
+                    csv_content = result.get('csv_content', '')
+                    created_file = result.get('created_file', 'messages_export.csv')
+                    logger.info(f"CSV content received in UI: {len(csv_content)} bytes")
+                    
+                    try:
+                        import csv
+                        import io
+                        
+                        csv_reader = csv.reader(io.StringIO(csv_content))
+                        headers = next(csv_reader, [])
+                        logger.info(f"CSV headers: {headers}")
+                        
+                        # Create context-aware header with model, station, and test information
+                        context_header = ""
+                        if model and station and test_case:
+                            context_header = f"📱 Model: {html.escape(model)}   |   📍 Station: {html.escape(station)}   |   🔍 Test: {html.escape(test_case)}"
+                        else:
+                            context_header = f"📄 {html.escape(created_file)}"
+                        
+                        # Build compact CSV table HTML that won't interfere with chart
+                        csv_display_content = f'''
+                        <div style="background: white; border-radius: 10px; padding: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin: 15px 0; max-width: 100%; width: 100%; box-sizing: border-box;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap;">
+                                <div style="flex: 1; min-width: 300px;">
+                                    <h4 style="margin: 0; color: #333; font-size: 18px; line-height: 1.4;">{context_header}</h4>
+                                    <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">File: {html.escape(created_file)}</p>
+                                </div>
+                                <button onclick="downloadCSV()" style="background: #667eea; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-size: 14px; margin-left: 10px;">
+                                    💾 Download CSV
+                                </button>
+                            </div>
+                            <div style="max-height: 200px; overflow-y: auto; overflow-x: auto; border: 1px solid #ddd; border-radius: 5px; width: 100%;">
+                                <table style="width: 100%; border-collapse: collapse; font-size: 12px; background: white; min-width: 600px;">
+                                    <thead>
+                                        <tr style="background: #667eea; color: white; position: sticky; top: 0;">
+                        '''
+                        
+                        # Headers
+                        for header in headers:
+                            csv_display_content += f'<th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-weight: 600; white-space: nowrap;">{html.escape(header)}</th>'
+                        csv_display_content += '</tr></thead><tbody>'
+                        
+                        # Body rows
+                        row_count = 0
+                        for row in csv_reader:
+                            row_count += 1
+                            bg_color = '#f8f9fa' if row_count % 2 == 0 else '#ffffff'
+                            csv_display_content += f'<tr style="background: {bg_color};">'
+                            for cell in row:
+                                csv_display_content += f'<td style="padding: 6px 8px; border: 1px solid #ddd; color: #333; white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">{html.escape(cell)}</td>'
+                            csv_display_content += '</tr>'
+                        
+                        # Fix backslash in f-string issue
+                        escaped_csv_content = csv_content.replace('`', '\\`')
+                        csv_display_content += f'''
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <script>
+                            function downloadCSV() {{
+                                const csvContent = `{escaped_csv_content}`;
+                                const blob = new Blob([csvContent], {{ type: 'text/csv;charset=utf-8;' }});
+                                const link = document.createElement('a');
+                                link.href = URL.createObjectURL(blob);
+                                link.download = '{html.escape(created_file)}';
+                                link.click();
+                                URL.revokeObjectURL(link.href);
+                            }}
+                        </script>
+                        '''
+                        
+                        logger.info(f"CSV table HTML generated successfully with {row_count} rows")
+                        
+                    except Exception as e:
+                        logger.error(f"Error parsing CSV content: {str(e)}")
+                        csv_display_content = f"""
+                        <div style="margin: 20px 0; background: #ffebee; border-radius: 10px; padding: 20px; color: #c62828;">
+                            <h4 style="margin: 0 0 10px 0;">❌ Error parsing CSV content</h4>
+                            <p style="margin: 0;">{html.escape(str(e))}</p>
+                        </div>
+                        """
+                
+                # Combine the notification and CSV display
+                combined_html = f"""
+                {command_notification_html}
+                {csv_display_content}
+                """
+                return combined_html, csv_display_content
+                
+            else:
+                error_msg = result.get('error', 'Unknown error occurred')
+                output_html = f'<p style="margin: 10px 0 0 0; font-size: 14px; opacity: 0.9;">Output: {html.escape(result.get("output", "")[:200])}...</p>' if result.get('output') else ''
+                error_notification_html = f"""
+                <div id="remote-execution-result" style="margin: 20px 0; padding: 20px; background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%); border-radius: 10px; color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+                    <h3 style="margin: 0 0 10px 0; font-size: 20px;">❌ Command Failed</h3>
+                    <p style="margin: 0; font-size: 16px;">{html.escape(error_msg)}</p>
+                    {output_html}
+                </div>
+                <script>
+                    // Reset buttons using the global function
+                    if (window.resetRemoteCommandButtons) {{
+                        window.resetRemoteCommandButtons();
+                    }}
+                </script>
+                """
+                
+                # Return error notification with existing commands preserved
+                combined_html = f"""
+                <div id="combined-content">
+                    {error_notification_html}
+                    {existing_commands_html if existing_commands_html else ""}
+                </div>
+                """
+                return combined_html, ""
+            
+        except Exception as e:
+            logger.error(f"Error in handle_remote_execution_event: {str(e)}")
+            error_html = f"""
+            <div id="remote-execution-result" style="margin: 20px 0; padding: 20px; background: linear-gradient(135deg, #ff6347 0%, #dc143c 100%); border-radius: 10px; color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+                <h3 style="margin: 0 0 10px 0; font-size: 20px;">⚠️ Error</h3>
+                <p style="margin: 0; font-size: 16px;">{html.escape(str(e))}</p>
+            </div>
+            <script>
+                // Reset buttons using the global function
+                if (window.resetRemoteCommandButtons) {{
+                    window.resetRemoteCommandButtons();
+                }}
+            </script>
+            """
+            return error_html, ""
+    
+    js_remote_trigger.click(
+        handle_remote_execution_event,
+        inputs=[js_remote_machine, js_remote_command, js_remote_type, js_model, js_station, js_test_case, commands_html_state],
+        outputs=[command_generation_html, csv_content_state],
     )
 
     # Set up polling mechanism to check for row clicks
@@ -2426,7 +3134,7 @@ with gr.Blocks(
 
         # Only check every 0.5 seconds
         if current_time - polling_state.get("last_check", 0) < 0.5:
-            return gr.update(), polling_state
+            return polling_state
 
         polling_state["last_check"] = current_time
 
@@ -2475,14 +3183,14 @@ with gr.Blocks(
         </script>
         """
 
-        return check_js, polling_state
+        return polling_state
 
     # Set up timer to poll every 500ms
     timer = gr.Timer(0.5)
     timer.tick(
         poll_for_row_clicks,
         inputs=[polling_state, full_df_state],
-        outputs=[command_generation_html, polling_state],
+        outputs=[polling_state],
     )
 
     apply_filter_button.click(

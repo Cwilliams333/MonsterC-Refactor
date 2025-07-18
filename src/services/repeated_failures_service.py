@@ -6,7 +6,15 @@ extracted from the legacy monolith following the Strangler Fig pattern.
 """
 
 import html
-from typing import Any, List, Optional, Tuple, Union
+import subprocess
+import json
+import os
+import asyncio
+import time
+import threading
+import tempfile
+import base64
+from typing import Any, List, Optional, Tuple, Union, Dict
 
 import gradio as gr
 import pandas as pd
@@ -14,7 +22,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 from src.common.logging_config import capture_exceptions, get_logger
-from src.common.mappings import DEVICE_MAP
+from src.common.mappings import DEVICE_MAP, get_test_from_result_fail, STATION_TO_MACHINE
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -35,6 +43,429 @@ def get_model_code(model: str) -> str:
     if isinstance(code, list):
         return code[0]  # Take first code if multiple exist
     return code
+
+
+def get_machine_name_from_station(station_id: str) -> tuple[str, str]:
+    """
+    Get the machine name and location from station ID.
+    
+    Args:
+        station_id: Station ID like 'radi183'
+        
+    Returns:
+        Tuple of (machine_name, location) like ('bertta18', 'B18 Red Secondary')
+    """
+    # Handle direct bertta station IDs
+    station_lower = station_id.lower()
+    if station_lower.startswith('bertta'):
+        # Extract number from bertta24_station -> bertta24
+        if '_' in station_lower:
+            machine_name = station_lower.split('_')[0]
+        else:
+            machine_name = station_lower
+        
+        # Validate the bert number
+        bert_number = machine_name.replace('bertta', '')
+        valid_bert_numbers = ['17', '18', '24', '25', '56']
+        
+        if bert_number in valid_bert_numbers:
+            return machine_name, f"Direct {machine_name} station"
+        else:
+            # Map to a valid bert if possible
+            bert_mapping = {
+                '103': 'bertta56',
+                '37': 'bertta24',
+                '58': 'bertta25',
+                '22': 'bertta24',
+            }
+            if bert_number in bert_mapping:
+                return bert_mapping[bert_number], f"Mapped from {machine_name}"
+    
+    # Use the existing STATION_TO_MACHINE mapping
+    location = STATION_TO_MACHINE.get(station_lower, "Unknown Machine")
+    
+    # Extract machine name from comments in the original mapping
+    machine_map = {
+        "B56 Red Primary": "bertta56",
+        "B18 Red Secondary": "bertta18",
+        "B25 Green Secondary": "bertta25",
+        "B17 Green Primary": "bertta17",
+        "B24 Manual Trades": "bertta24",
+        "B22 Manual Core": "bertta24",  # Map to bertta24 since bertta22 is not valid in bert_tool.sh
+        "B103 NPI": "bertta56",  # Map to bertta56 since bertta103 is not valid
+        "B37 Packers": "bertta24",  # Map to bertta24 since bertta37 is not valid
+        "B58 Hawks": "bertta25"  # Map to bertta25 since bertta58 is not valid
+    }
+    
+    machine_name = machine_map.get(location, "Unknown")
+    return machine_name, location
+
+
+@capture_exceptions(user_message="Failed to execute remote command")
+def execute_remote_command(machine_name: str, command: str, command_type: str) -> Dict[str, Any]:
+    """
+    Execute a command remotely on the specified machine using bert_tool.sh.
+    
+    Args:
+        machine_name: Machine name like 'bertta18'
+        command: The db-export command to execute
+        command_type: Type of command ('messages', 'gauge', or 'raw_data')
+        
+    Returns:
+        Dict with status, output, and error information
+    """
+    logger.info("*" * 80)
+    logger.info("EXECUTE_REMOTE_COMMAND CALLED")
+    logger.info(f"Machine Name: {machine_name}")
+    logger.info(f"Command Type: {command_type}")
+    logger.info(f"Full Command: {command}")
+    logger.info("*" * 80)
+    
+    try:
+        # Extract bert number from machine name (e.g., 'bertta18' -> '18')
+        bert_number = machine_name.replace('bertta', '')
+        
+        # Validate bert number - bert_tool.sh only accepts specific numbers
+        valid_bert_numbers = ['17', '18', '24', '25', '56']  # As per bert_tool.sh validation
+        if bert_number not in valid_bert_numbers:
+            # Map other machines to valid bert numbers or return error
+            bert_mapping = {
+                '103': '56',  # Map bertta103 to bertta56
+                '37': '24',   # Map bertta37 to bertta24
+                '58': '25',   # Map bertta58 to bertta25
+                '22': '24',   # Map bertta22 to bertta24 (Manual Core)
+            }
+            
+            if bert_number in bert_mapping:
+                logger.warning(f"Mapping bert{bert_number} to bert{bert_mapping[bert_number]} for compatibility")
+                bert_number = bert_mapping[bert_number]
+            else:
+                return {
+                    'status': 'error',
+                    'error': f'Invalid bert number: {bert_number}. Valid numbers are: {", ".join(valid_bert_numbers)}',
+                    'output': ''
+                }
+        
+        # Get password from environment or use default
+        password = os.environ.get('FUSIONPW', 'fusionproject')
+        
+        # Path to bert_tool.sh
+        bert_tool_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'bert_tool.sh')
+        
+        # Ensure bert_tool.sh exists
+        if not os.path.exists(bert_tool_path):
+            return {
+                'status': 'error',
+                'error': f'bert_tool.sh not found at {bert_tool_path}',
+                'output': ''
+            }
+        
+        # Set up environment to prevent interactive SSH prompts
+        env = os.environ.copy()
+        env['SSH_ASKPASS'] = '/bin/false'
+        env['DISPLAY'] = ''  # Prevent X11 askpass
+        
+        # STEP 1: Get list of existing files BEFORE running the command
+        # This helps us identify which file is newly created
+        existing_files = set()
+        if command_type == "messages":
+            # List existing message export files before command execution
+            list_before_cmd = [
+                'bash',
+                bert_tool_path,
+                '--bert', bert_number,
+                '--pw', password,
+                '--cmd', 'ls -1 /home/fusion/ | grep "messages_export" || true'
+            ]
+            
+            list_before_result = subprocess.run(
+                list_before_cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=env
+            )
+            
+            if list_before_result.returncode == 0 and list_before_result.stdout:
+                # Parse existing files
+                lines = list_before_result.stdout.strip().split('\n')
+                for line in lines:
+                    # Skip bert_tool output lines and command echoes
+                    if ('▶' in line or '✅' in line or 'running on' in line or 
+                        line.strip().startswith('ls ') or '|' in line):
+                        continue
+                    clean_line = line.strip()
+                    # Only add if it looks like a filename
+                    if clean_line and 'messages_export' in clean_line and '_export_' in clean_line:
+                        existing_files.add(clean_line)
+                logger.info(f"Existing message files before command: {existing_files}")
+        
+        # STEP 2: Execute the actual db-export command
+        bert_cmd = [
+            'bash',
+            bert_tool_path,
+            '--bert', bert_number,
+            '--pw', password,
+            '--cmd', f"cd /home/fusion && {command}"
+        ]
+        
+        logger.info(f"Executing remote command on {machine_name}: {command}")
+        logger.debug(f"Full bert command: {' '.join(bert_cmd)}")
+        
+        # Record command execution time
+        import time
+        command_start_time = time.time()
+        
+        # Execute the command
+        result = subprocess.run(
+            bert_cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout
+            env=env
+        )
+        
+        command_end_time = time.time()
+        
+        if result.returncode == 0:
+            logger.info(f"Command executed successfully on {machine_name}")
+            logger.info(f"STDOUT: {result.stdout}")
+            
+            # STEP 3: Find the newly created file
+            # Wait a moment to ensure file creation is complete
+            time.sleep(1)
+            
+            # List files again, but this time look for files created after our command
+            list_cmd = [
+                'bash',
+                bert_tool_path,
+                '--bert', bert_number,
+                '--pw', password,
+                '--cmd', 'ls -1t /home/fusion/ | grep -E "(messages_export|gauge_export|raw_data_export)" | head -10'
+            ]
+            
+            list_result = subprocess.run(
+                list_cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=env
+            )
+            
+            created_file = None
+            if list_result.returncode == 0 and list_result.stdout:
+                logger.info(f"Raw stdout from ls command: {repr(list_result.stdout)}")
+                
+                # Parse the listing to find the newest file
+                lines = list_result.stdout.strip().split('\n')
+                logger.info(f"Number of lines in output: {len(lines)}")
+                
+                # First, let's see all the lines for debugging
+                for i, line in enumerate(lines):
+                    logger.debug(f"Line {i}: {repr(line)}")
+                
+                # Now parse for actual filenames
+                parsed_files = []
+                for line in lines:
+                    # Skip bert_tool output lines
+                    if '▶' in line or '✅' in line or 'running on' in line or 'Executing' in line:
+                        continue
+                    clean_line = line.strip()
+                    if not clean_line:
+                        continue
+                    
+                    # Check if this line looks like a filename (not a command or other output)
+                    if '_export_' in clean_line and not clean_line.startswith('ls ') and not clean_line.startswith('grep '):
+                        parsed_files.append(clean_line)
+                        logger.info(f"Parsed filename: {clean_line}")
+                
+                logger.info(f"Total parsed files: {len(parsed_files)}")
+                logger.info(f"Parsed files list: {parsed_files}")
+                
+                # For messages command, find the new file
+                if command_type == "messages":
+                    logger.info(f"Existing files before command: {existing_files}")
+                    for filename in parsed_files:
+                        if 'messages_export' in filename and filename not in existing_files:
+                            created_file = filename
+                            logger.info(f"Found NEW messages file: {created_file}")
+                            break
+                    
+                    # If we couldn't identify a new file, use the most recent one
+                    if not created_file and parsed_files:
+                        for filename in parsed_files:
+                            if 'messages_export' in filename:
+                                created_file = filename
+                                logger.warning(f"Could not identify new file, using most recent: {created_file}")
+                                break
+                
+                # For other command types
+                elif command_type == "gauge" and parsed_files:
+                    for filename in parsed_files:
+                        if 'gauge_export' in filename:
+                            created_file = filename
+                            logger.info(f"Found gauge file: {created_file}")
+                            break
+                elif command_type == "raw_data" and parsed_files:
+                    for filename in parsed_files:
+                        if 'raw_data_export' in filename:
+                            created_file = filename
+                            logger.info(f"Found raw_data file: {created_file}")
+                            break
+                
+                if not created_file:
+                    logger.warning(f"No {command_type}_export file found in parsed output")
+            
+            # STEP 4: For messages command, retrieve the CSV content
+            csv_content = None
+            if command_type == "messages" and created_file:
+                logger.info(f"Attempting to retrieve CSV content for messages file: {created_file}")
+                
+                # Ensure we have a valid filename, not a command
+                if created_file.startswith('ls ') or '|' in created_file:
+                    logger.error(f"ERROR: created_file contains a command, not a filename: {created_file}")
+                    logger.error("This indicates a parsing error in the file listing logic")
+                else:
+                    # Use SCP to transfer the file locally to avoid pipe buffer deadlock
+                    logger.info("Using SCP method to transfer CSV file...")
+                    
+                    # Create temporary directory for file transfer
+                    temp_dir = tempfile.mkdtemp()
+                    local_file = os.path.join(temp_dir, created_file)
+                    
+                    # Map bert number to port
+                    bert_to_port = {
+                        '17': '45017',
+                        '18': '45018', 
+                        '24': '45024',
+                        '25': '45025',
+                        '56': '45056'
+                    }
+                    
+                    # Build SCP command with ProxyJump
+                    scp_cmd = [
+                        'sshpass', '-p', password,
+                        'scp',
+                        '-o', 'StrictHostKeyChecking=no',
+                        '-o', 'UserKnownHostsFile=/dev/null',
+                        '-o', f'ProxyJump=ubuntu@52.54.110.136',
+                        '-P', bert_to_port.get(bert_number, '45024'),
+                        f'fusion@127.0.0.1:/home/fusion/{created_file}',
+                        local_file
+                    ]
+                    
+                    try:
+                        # Execute file transfer
+                        logger.info(f"Transferring CSV file via SCP: {created_file}")
+                        logger.info(f"SCP command: {' '.join(scp_cmd)}")
+                        scp_result = subprocess.run(scp_cmd, capture_output=True, text=True, timeout=30)
+                        
+                        if scp_result.returncode == 0 and os.path.exists(local_file):
+                            # Read the transferred file
+                            with open(local_file, 'r', encoding='utf-8') as f:
+                                csv_content = f.read()
+                            
+                            logger.info(f"Successfully retrieved CSV content via SCP: {len(csv_content)} bytes")
+                            
+                            # Cleanup
+                            os.remove(local_file)
+                            os.rmdir(temp_dir)
+                        else:
+                            logger.error(f"SCP transfer failed with return code: {scp_result.returncode}")
+                            logger.error(f"SCP stderr: {scp_result.stderr}")
+                            
+                            # Fallback to base64 encoding method
+                            logger.info("Attempting fallback method using base64 encoding...")
+                            
+                            # Set up environment to prevent interactive SSH prompts
+                            env = os.environ.copy()
+                            env['SSH_ASKPASS'] = '/bin/false'
+                            env['DISPLAY'] = ''  # Prevent X11 askpass
+                            
+                            base64_cmd = [
+                                'bash',
+                                bert_tool_path,
+                                '--bert', bert_number,
+                                '--pw', password,
+                                '--cmd', f'base64 /home/fusion/{created_file}'
+                            ]
+                            
+                            base64_result = subprocess.run(base64_cmd, capture_output=True, text=True, timeout=30, env=env)
+                            
+                            if base64_result.returncode == 0:
+                                # Decode base64 content
+                                encoded_content = base64_result.stdout
+                                # Clean bert_tool output
+                                lines = encoded_content.strip().split('\n')
+                                clean_content = []
+                                for line in lines:
+                                    if not any(marker in line for marker in ['▶', '✅', 'running on', 'cd /', 'base64']):
+                                        clean_content.append(line)
+                                
+                                try:
+                                    csv_content = base64.b64decode(''.join(clean_content)).decode('utf-8')
+                                    logger.info(f"Successfully retrieved CSV content via base64: {len(csv_content)} bytes")
+                                except Exception as e:
+                                    logger.error(f"Failed to decode base64 content: {str(e)}")
+                                    csv_content = None
+                            else:
+                                logger.error(f"Base64 fallback failed: {base64_result.stderr}")
+                                csv_content = None
+                            
+                            # Cleanup temp directory if it still exists
+                            if os.path.exists(temp_dir):
+                                if os.path.exists(local_file):
+                                    os.remove(local_file)
+                                os.rmdir(temp_dir)
+                                
+                    except subprocess.TimeoutExpired:
+                        logger.error("SCP command timed out after 30 seconds")
+                        csv_content = None
+                        # Cleanup on timeout
+                        if os.path.exists(local_file):
+                            os.remove(local_file)
+                        if os.path.exists(temp_dir):
+                            os.rmdir(temp_dir)
+                    except Exception as e:
+                        logger.error(f"Error transferring CSV file: {str(e)}")
+                        csv_content = None
+                        # Cleanup on error
+                        if os.path.exists(local_file):
+                            os.remove(local_file)
+                        if os.path.exists(temp_dir):
+                            os.rmdir(temp_dir)
+            
+            return {
+                'status': 'success',
+                'output': result.stdout,
+                'error': '',
+                'created_file': created_file,
+                'csv_content': csv_content,
+                'command_type': command_type
+            }
+        else:
+            logger.error(f"Command failed with return code {result.returncode}")
+            logger.error(f"STDERR: {result.stderr}")
+            return {
+                'status': 'error',
+                'output': result.stdout,
+                'error': result.stderr
+            }
+            
+    except subprocess.TimeoutExpired:
+        logger.error("Command timed out after 5 minutes")
+        return {
+            'status': 'error',
+            'error': 'Command timed out after 5 minutes',
+            'output': ''
+        }
+    except Exception as e:
+        logger.error(f"Error executing remote command: {str(e)}")
+        return {
+            'status': 'error',
+            'error': str(e),
+            'output': ''
+        }
 
 
 @capture_exceptions(user_message="Failed to create summary")
@@ -657,6 +1088,52 @@ def handle_test_case_selection(
     return selected_test_cases
 
 
+@capture_exceptions(user_message="Failed to handle remote command execution")
+def handle_remote_command_execution(machine: str, command: str, command_type: str) -> Dict[str, Any]:
+    """
+    Handle the remote command execution request from the UI.
+    
+    Args:
+        machine: Machine name (e.g., 'bertta18')
+        command: The db-export command to execute
+        command_type: Type of command ('messages', 'gauge', or 'raw_data')
+        
+    Returns:
+        Dict with execution status and results
+    """
+    logger.info("=" * 80)
+    logger.info("REMOTE COMMAND EXECUTION HANDLER CALLED")
+    logger.info(f"Machine: {machine}")
+    logger.info(f"Command type: {command_type}")
+    logger.info(f"Command: {command}")
+    logger.info("=" * 80)
+    
+    try:
+        # Execute the command remotely
+        result = execute_remote_command(machine, command, command_type)
+        
+        # Log the result
+        if result['status'] == 'success':
+            logger.info(f"Command executed successfully on {machine}")
+            if result.get('created_file'):
+                logger.info(f"Output file created: {result['created_file']}")
+        else:
+            logger.error(f"Command failed on {machine}: {result['error']}")
+        
+        # Pass through all the result data including CSV content
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error in handle_remote_command_execution: {str(e)}")
+        return {
+            'status': 'error',
+            'error': str(e),
+            'output': '',
+            'csv_content': None,
+            'command_type': command_type
+        }
+
+
 @capture_exceptions(user_message="Failed to generate IMEI commands")
 def generate_imei_commands(
     full_df: pd.DataFrame, model: str, station_id: str, test_case: str
@@ -728,89 +1205,125 @@ def generate_imei_commands(
         # Generate the db-export commands
         imei_args = " ".join([f"--dut {imei}" for imei in imeis])
 
+        # Map the failure description to the proper test name
+        mapped_test_name = get_test_from_result_fail(test_case)
+        logger.debug(f"Mapped test_case '{test_case}' to test name '{mapped_test_name}'")
+
         # Create the three commands
         messages_cmd = f"db-export messages {imei_args}"
-        gauge_cmd = f'db-export gauge --test "{test_case}" {imei_args}'
-        raw_data_cmd = f'db-export raw_data --test "{test_case}" {imei_args}'
+        gauge_cmd = f'db-export gauge --test "{mapped_test_name}" {imei_args}'
+        raw_data_cmd = f'db-export raw_data --test "{mapped_test_name}" {imei_args}'
 
-        # Escape for JavaScript - need to escape backticks and quotes
+        # Escape for JavaScript - need to escape backslashes first, then backticks and quotes
         messages_cmd_js = (
-            messages_cmd.replace("\\", "\\\\").replace("`", "\\`").replace('"', '\\"')
+            messages_cmd.replace("\\", "\\\\").replace("`", "\\`").replace('"', '\\"').replace("'", "\\'")
         )
         gauge_cmd_js = (
-            gauge_cmd.replace("\\", "\\\\").replace("`", "\\`").replace('"', '\\"')
+            gauge_cmd.replace("\\", "\\\\").replace("`", "\\`").replace('"', '\\"').replace("'", "\\'")
         )
         raw_data_cmd_js = (
-            raw_data_cmd.replace("\\", "\\\\").replace("`", "\\`").replace('"', '\\"')
+            raw_data_cmd.replace("\\", "\\\\").replace("`", "\\`").replace('"', '\\"').replace("'", "\\'")
         )
 
-        # Create the HTML response with sleek markdown-style design
+        # Get machine name and location from station ID
+        machine_name, location = get_machine_name_from_station(station_id)
+        
+        # Create the HTML response with improved design
         html_content = f"""
         <div id="command-ui" style="margin: 15px 0; animation: slideDown 0.4s ease-out;">
-            <div style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 10px; padding: 20px;">
-                <div style="margin-bottom: 15px;">
-                    <h4 style="margin: 0 0 8px 0; color: #495057; font-size: 18px; font-weight: 600;">
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <h3 style="margin: 0 0 15px 0; color: white; font-size: 24px; font-weight: 700; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">
                         🔧 IMEI Extractor Commands
-                    </h4>
-                    <p style="margin: 0; color: #6c757d; font-size: 14px;">
-                        <strong>Selected:</strong> {html.escape(model)} | {html.escape(station_id)} | {html.escape(test_case)}<br>
-                        <strong>Found:</strong> {imei_count} failed IMEIs
-                    </p>
+                    </h3>
+                    <div style="background: rgba(255,255,255,0.2); border-radius: 10px; padding: 15px; backdrop-filter: blur(10px);">
+                        <p style="margin: 0 0 10px 0; color: white; font-size: 16px; font-weight: 500;">
+                            <strong>📱 Model:</strong> {html.escape(model)} &nbsp;&nbsp;|&nbsp;&nbsp; 
+                            <strong>📍 Station:</strong> {html.escape(station_id)} &nbsp;&nbsp;|&nbsp;&nbsp; 
+                            <strong>🔍 Test:</strong> {html.escape(test_case)}
+                        </p>
+                        <p style="margin: 0 0 10px 0; color: white; font-size: 16px;">
+                            <strong>📊 Found:</strong> <span style="font-size: 20px; font-weight: 700;">{imei_count}</span> failed IMEIs
+                        </p>
+                        <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px; margin-top: 10px;">
+                            <p style="margin: 0; color: #ffd700; font-size: 18px; font-weight: 700; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);">
+                                🖥️ CONNECT TO: <span style="font-size: 22px; text-transform: uppercase;">{machine_name}</span>
+                            </p>
+                            <p style="margin: 5px 0 0 0; color: #e0e0e0; font-size: 14px;">
+                                Location: {location}
+                            </p>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Messages Command -->
-                <div style="margin-bottom: 12px;">
-                    <p style="margin: 0 0 6px 0; color: #495057; font-size: 14px; font-weight: 500;">📨 Messages Command:</p>
+                <div style="background: white; border-radius: 10px; padding: 15px; margin-bottom: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <p style="margin: 0 0 8px 0; color: #333; font-size: 15px; font-weight: 600;">📨 Messages Command:</p>
                     <div style="display: flex; align-items: center; gap: 10px;">
-                        <code style="flex: 1; background: #2d3748; color: #e2e8f0; padding: 12px 16px; border-radius: 6px; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; overflow-x: auto; white-space: nowrap; display: block;">
+                        <code style="flex: 1; background: #1a1a1a; color: #00ff00; padding: 12px 16px; border-radius: 6px; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; overflow-x: auto; white-space: nowrap; display: block; border: 1px solid #333;">
                             {html.escape(messages_cmd)}
                         </code>
                         <button onclick='navigator.clipboard.writeText(`{messages_cmd_js}`).then(() => {{ this.innerHTML = "✓"; setTimeout(() => this.innerHTML = "📋", 2000); }})'
-                                style="background: #667eea; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s ease; flex-shrink: 0;"
-                                onmouseover="this.style.background='#5a67d8'" onmouseout="this.style.background='#667eea'">
+                                style="background: #4caf50; color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s ease; flex-shrink: 0; font-weight: 600;"
+                                onmouseover="this.style.background='#45a049'" onmouseout="this.style.background='#4caf50'">
                             📋
+                        </button>
+                        <button onclick='runRemoteCommand("{machine_name}", `{messages_cmd_js}`, "messages")'
+                                class="run-command-button"
+                                style="background: #2196F3; color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s ease; flex-shrink: 0; font-weight: 600;"
+                                onmouseover="this.style.background='#1976D2'" onmouseout="this.style.background='#2196F3'"
+                                title="Run command on {machine_name}">
+                            ▶️
                         </button>
                     </div>
                 </div>
 
                 <!-- Gauge Command -->
-                <div style="margin-bottom: 12px;">
-                    <p style="margin: 0 0 6px 0; color: #495057; font-size: 14px; font-weight: 500;">📊 Gauge Command:</p>
+                <div style="background: white; border-radius: 10px; padding: 15px; margin-bottom: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <p style="margin: 0 0 8px 0; color: #333; font-size: 15px; font-weight: 600;">📊 Gauge Command:</p>
                     <div style="display: flex; align-items: center; gap: 10px;">
-                        <code style="flex: 1; background: #2d3748; color: #e2e8f0; padding: 12px 16px; border-radius: 6px; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; overflow-x: auto; white-space: nowrap; display: block;">
+                        <code style="flex: 1; background: #1a1a1a; color: #00ff00; padding: 12px 16px; border-radius: 6px; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; overflow-x: auto; white-space: nowrap; display: block; border: 1px solid #333;">
                             {html.escape(gauge_cmd)}
                         </code>
                         <button onclick='navigator.clipboard.writeText(`{gauge_cmd_js}`).then(() => {{ this.innerHTML = "✓"; setTimeout(() => this.innerHTML = "📋", 2000); }})'
-                                style="background: #667eea; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s ease; flex-shrink: 0;"
-                                onmouseover="this.style.background='#5a67d8'" onmouseout="this.style.background='#667eea'">
+                                style="background: #4caf50; color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s ease; flex-shrink: 0; font-weight: 600;"
+                                onmouseover="this.style.background='#45a049'" onmouseout="this.style.background='#4caf50'">
                             📋
+                        </button>
+                        <button onclick='runRemoteCommand("{machine_name}", `{gauge_cmd_js}`, "gauge")'
+                                class="run-command-button"
+                                style="background: #2196F3; color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s ease; flex-shrink: 0; font-weight: 600;"
+                                onmouseover="this.style.background='#1976D2'" onmouseout="this.style.background='#2196F3'"
+                                title="Run command on {machine_name}">
+                            ▶️
                         </button>
                     </div>
                 </div>
 
                 <!-- Raw Data Command -->
-                <div>
-                    <p style="margin: 0 0 6px 0; color: #495057; font-size: 14px; font-weight: 500;">💾 Raw Data Command:</p>
+                <div style="background: white; border-radius: 10px; padding: 15px; margin-bottom: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                    <p style="margin: 0 0 8px 0; color: #333; font-size: 15px; font-weight: 600;">💾 Raw Data Command:</p>
                     <div style="display: flex; align-items: center; gap: 10px;">
-                        <code style="flex: 1; background: #2d3748; color: #e2e8f0; padding: 12px 16px; border-radius: 6px; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; overflow-x: auto; white-space: nowrap; display: block;">
+                        <code style="flex: 1; background: #1a1a1a; color: #00ff00; padding: 12px 16px; border-radius: 6px; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; overflow-x: auto; white-space: nowrap; display: block; border: 1px solid #333;">
                             {html.escape(raw_data_cmd)}
                         </code>
                         <button onclick='navigator.clipboard.writeText(`{raw_data_cmd_js}`).then(() => {{ this.innerHTML = "✓"; setTimeout(() => this.innerHTML = "📋", 2000); }})'
-                                style="background: #667eea; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s ease; flex-shrink: 0;"
-                                onmouseover="this.style.background='#5a67d8'" onmouseout="this.style.background='#667eea'">
+                                style="background: #4caf50; color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s ease; flex-shrink: 0; font-weight: 600;"
+                                onmouseover="this.style.background='#45a049'" onmouseout="this.style.background='#4caf50'">
                             📋
+                        </button>
+                        <button onclick='runRemoteCommand("{machine_name}", `{raw_data_cmd_js}`, "raw_data")'
+                                class="run-command-button"
+                                style="background: #2196F3; color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s ease; flex-shrink: 0; font-weight: 600;"
+                                onmouseover="this.style.background='#1976D2'" onmouseout="this.style.background='#2196F3'"
+                                title="Run command on {machine_name}">
+                            ▶️
                         </button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <style>
-            @keyframes slideDown {{
-                from {{ opacity: 0; transform: translateY(-10px); }}
-                to {{ opacity: 1; transform: translateY(0); }}
-            }}
-        </style>
         """
 
         return html_content
