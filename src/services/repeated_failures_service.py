@@ -14,6 +14,7 @@ import time
 import threading
 import tempfile
 import base64
+from datetime import datetime
 from typing import Any, List, Optional, Tuple, Union, Dict
 
 import gradio as gr
@@ -101,372 +102,131 @@ def get_machine_name_from_station(station_id: str) -> tuple[str, str]:
     return machine_name, location
 
 
+# (in src/services/repeated_failures_service.py)
+
+# (in src/services/repeated_failures_service.py)
+
+# Make sure datetime is imported at the top
+from datetime import datetime
+
+# (in src/services/repeated_failures_service.py)
+
+# Ensure these imports are at the top of the file
+from datetime import datetime
+import tempfile
+import time
+
 @capture_exceptions(user_message="Failed to execute remote command")
 def execute_remote_command(machine_name: str, command: str, command_type: str) -> Dict[str, Any]:
     """
-    Execute a command remotely on the specified machine using bert_tool.sh.
-    
-    Args:
-        machine_name: Machine name like 'bertta18'
-        command: The db-export command to execute
-        command_type: Type of command ('messages', 'gauge', or 'raw_data')
-        
-    Returns:
-        Dict with status, output, and error information
+    Executes a command remotely, robustly detects the newest created file, and retrieves it using direct SCP.
+    This version combines the original working SCP logic with robust file detection.
     """
     logger.info("*" * 80)
-    logger.info("EXECUTE_REMOTE_COMMAND CALLED")
-    logger.info(f"Machine Name: {machine_name}")
-    logger.info(f"Command Type: {command_type}")
-    logger.info(f"Full Command: {command}")
+    logger.info("EXECUTE_REMOTE_COMMAND (Corrected Hybrid) CALLED")
+    logger.info(f"Machine: {machine_name}, Type: {command_type}")
     logger.info("*" * 80)
-    
+
     try:
-        # Extract bert number from machine name (e.g., 'bertta18' -> '18')
+        # --- Setup and Validation (remains the same) ---
         bert_number = machine_name.replace('bertta', '')
-        
-        # Validate bert number - bert_tool.sh only accepts specific numbers
-        valid_bert_numbers = ['17', '18', '24', '25', '56']  # As per bert_tool.sh validation
+        valid_bert_numbers = ['17', '18', '24', '25', '56']
+        bert_mapping = {'103': '56', '37': '24', '58': '25', '22': '24'}
         if bert_number not in valid_bert_numbers:
-            # Map other machines to valid bert numbers or return error
-            bert_mapping = {
-                '103': '56',  # Map bertta103 to bertta56
-                '37': '24',   # Map bertta37 to bertta24
-                '58': '25',   # Map bertta58 to bertta25
-                '22': '24',   # Map bertta22 to bertta24 (Manual Core)
-            }
-            
             if bert_number in bert_mapping:
-                logger.warning(f"Mapping bert{bert_number} to bert{bert_mapping[bert_number]} for compatibility")
                 bert_number = bert_mapping[bert_number]
             else:
-                return {
-                    'status': 'error',
-                    'error': f'Invalid bert number: {bert_number}. Valid numbers are: {", ".join(valid_bert_numbers)}',
-                    'output': ''
-                }
-        
-        # Get password from environment or use default
+                return {'status': 'error', 'error': f'Invalid bert number: {bert_number}'}
+
         password = os.environ.get('FUSIONPW', 'fusionproject')
-        
-        # Path to bert_tool.sh
         bert_tool_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'bert_tool.sh')
-        
-        # Ensure bert_tool.sh exists
         if not os.path.exists(bert_tool_path):
-            return {
-                'status': 'error',
-                'error': f'bert_tool.sh not found at {bert_tool_path}',
-                'output': ''
-            }
-        
-        # Set up environment to prevent interactive SSH prompts
+            return {'status': 'error', 'error': f'bert_tool.sh not found'}
+
         env = os.environ.copy()
         env['SSH_ASKPASS'] = '/bin/false'
-        env['DISPLAY'] = ''  # Prevent X11 askpass
+        env['DISPLAY'] = ''
+
+        # === STEP 1: Execute the db-export command via bert_tool.sh ===
+        exec_args = ['bash', bert_tool_path, '--bert', bert_number, '--pw', password, '--cmd', f"cd /home/fusion && {command}"]
+        logger.info(f"Executing remote command: {command}")
+        exec_result = subprocess.run(exec_args, capture_output=True, text=True, timeout=300, env=env)
+
+        if exec_result.returncode != 0:
+            logger.error(f"db-export command failed! Stderr: {exec_result.stderr}")
+            return {'status': 'error', 'output': exec_result.stdout, 'error': exec_result.stderr}
         
-        # STEP 1: Get list of existing files BEFORE running the command
-        # This helps us identify which file is newly created
-        existing_files = set()
-        if command_type == "messages":
-            # List existing message export files before command execution
-            list_before_cmd = [
-                'bash',
-                bert_tool_path,
-                '--bert', bert_number,
-                '--pw', password,
-                '--cmd', 'ls -1 /home/fusion/ | grep "messages_export" || true'
+        logger.info("db-export command completed successfully.")
+        time.sleep(2) # A short, pragmatic delay for filesystem sync
+
+        # === STEP 2: Find the newest file using a reliable sort ===
+        find_newest_cmd_str = f'ls -1 /home/fusion/ | grep "{command_type}_export" | sort -r | head -1'
+        find_newest_args = ['bash', bert_tool_path, '--bert', bert_number, '--pw', password, '--cmd', find_newest_cmd_str]
+        
+        logger.info("Finding the single newest remote file...")
+        find_result = subprocess.run(find_newest_args, capture_output=True, text=True, timeout=60, env=env)
+        
+        created_file = None
+        if find_result.returncode == 0 and find_result.stdout:
+            lines = find_result.stdout.strip().split('\n')
+            for line in reversed(lines):
+                if line.strip() and not any(marker in line for marker in ['▶', '✅', 'running on', 'ls ']):
+                    created_file = line.strip()
+                    break
+        
+        if not created_file:
+            logger.error("Could not determine the name of the newly created file.")
+            return {'status': 'error', 'error': 'Could not determine the name of the newly created file.'}
+        
+        logger.info(f"SUCCESS: Reliably detected new file: {created_file}")
+
+        # === STEP 3: Retrieve the file using direct SCP (the original, working method) ===
+        csv_content = None
+        remote_filepath = f"/home/fusion/{created_file}"
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            local_filepath = os.path.join(temp_dir, created_file)
+            bert_to_port = {'17': '45017', '18': '45018', '24': '45024', '25': '45025', '56': '45056'}
+
+            scp_cmd = [
+                'sshpass', '-p', password, 'scp',
+                '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null',
+                '-o', f'ProxyJump=ubuntu@52.54.110.136',
+                '-P', bert_to_port.get(bert_number, '45024'),
+                f'fusion@127.0.0.1:{remote_filepath}',
+                local_filepath
             ]
-            
-            list_before_result = subprocess.run(
-                list_before_cmd,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                env=env
-            )
-            
-            if list_before_result.returncode == 0 and list_before_result.stdout:
-                # Parse existing files
-                lines = list_before_result.stdout.strip().split('\n')
-                for line in lines:
-                    # Skip bert_tool output lines and command echoes
-                    if ('▶' in line or '✅' in line or 'running on' in line or 
-                        line.strip().startswith('ls ') or '|' in line):
-                        continue
-                    clean_line = line.strip()
-                    # Only add if it looks like a filename
-                    if clean_line and 'messages_export' in clean_line and '_export_' in clean_line:
-                        existing_files.add(clean_line)
-                logger.info(f"Existing message files before command: {existing_files}")
-        
-        # STEP 2: Execute the actual db-export command
-        bert_cmd = [
-            'bash',
-            bert_tool_path,
-            '--bert', bert_number,
-            '--pw', password,
-            '--cmd', f"cd /home/fusion && {command}"
-        ]
-        
-        logger.info(f"Executing remote command on {machine_name}: {command}")
-        logger.debug(f"Full bert command: {' '.join(bert_cmd)}")
-        
-        # Record command execution time
-        import time
-        command_start_time = time.time()
-        
-        # Execute the command
-        result = subprocess.run(
-            bert_cmd,
-            capture_output=True,
-            text=True,
-            timeout=300,  # 5 minute timeout
-            env=env
-        )
-        
-        command_end_time = time.time()
-        
-        if result.returncode == 0:
-            logger.info(f"Command executed successfully on {machine_name}")
-            logger.info(f"STDOUT: {result.stdout}")
-            
-            # STEP 3: Find the newly created file
-            # Wait a moment to ensure file creation is complete
-            time.sleep(1)
-            
-            # List files again, but this time look for files created after our command
-            list_cmd = [
-                'bash',
-                bert_tool_path,
-                '--bert', bert_number,
-                '--pw', password,
-                '--cmd', 'ls -1t /home/fusion/ | grep -E "(messages_export|gauge_export|raw_data_export)" | head -10'
-            ]
-            
-            list_result = subprocess.run(
-                list_cmd,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                env=env
-            )
-            
-            created_file = None
-            if list_result.returncode == 0 and list_result.stdout:
-                logger.info(f"Raw stdout from ls command: {repr(list_result.stdout)}")
-                
-                # Parse the listing to find the newest file
-                lines = list_result.stdout.strip().split('\n')
-                logger.info(f"Number of lines in output: {len(lines)}")
-                
-                # First, let's see all the lines for debugging
-                for i, line in enumerate(lines):
-                    logger.debug(f"Line {i}: {repr(line)}")
-                
-                # Now parse for actual filenames
-                parsed_files = []
-                for line in lines:
-                    # Skip bert_tool output lines
-                    if '▶' in line or '✅' in line or 'running on' in line or 'Executing' in line:
-                        continue
-                    clean_line = line.strip()
-                    if not clean_line:
-                        continue
-                    
-                    # Check if this line looks like a filename (not a command or other output)
-                    if '_export_' in clean_line and not clean_line.startswith('ls ') and not clean_line.startswith('grep '):
-                        parsed_files.append(clean_line)
-                        logger.info(f"Parsed filename: {clean_line}")
-                
-                logger.info(f"Total parsed files: {len(parsed_files)}")
-                logger.info(f"Parsed files list: {parsed_files}")
-                
-                # For messages command, find the new file
-                if command_type == "messages":
-                    logger.info(f"Existing files before command: {existing_files}")
-                    for filename in parsed_files:
-                        if 'messages_export' in filename and filename not in existing_files:
-                            created_file = filename
-                            logger.info(f"Found NEW messages file: {created_file}")
-                            break
-                    
-                    # If we couldn't identify a new file, use the most recent one
-                    if not created_file and parsed_files:
-                        for filename in parsed_files:
-                            if 'messages_export' in filename:
-                                created_file = filename
-                                logger.warning(f"Could not identify new file, using most recent: {created_file}")
-                                break
-                
-                # For other command types
-                elif command_type == "gauge" and parsed_files:
-                    for filename in parsed_files:
-                        if 'gauge_export' in filename:
-                            created_file = filename
-                            logger.info(f"Found gauge file: {created_file}")
-                            break
-                elif command_type == "raw_data" and parsed_files:
-                    for filename in parsed_files:
-                        if 'raw_data_export' in filename:
-                            created_file = filename
-                            logger.info(f"Found raw_data file: {created_file}")
-                            break
-                
-                if not created_file:
-                    logger.warning(f"No {command_type}_export file found in parsed output")
-            
-            # STEP 4: For messages command, retrieve the CSV content
-            csv_content = None
-            if command_type == "messages" and created_file:
-                logger.info(f"Attempting to retrieve CSV content for messages file: {created_file}")
-                
-                # Ensure we have a valid filename, not a command
-                if created_file.startswith('ls ') or '|' in created_file:
-                    logger.error(f"ERROR: created_file contains a command, not a filename: {created_file}")
-                    logger.error("This indicates a parsing error in the file listing logic")
-                else:
-                    # Use SCP to transfer the file locally to avoid pipe buffer deadlock
-                    logger.info("Using SCP method to transfer CSV file...")
-                    
-                    # Create temporary directory for file transfer
-                    temp_dir = tempfile.mkdtemp()
-                    local_file = os.path.join(temp_dir, created_file)
-                    
-                    # Map bert number to port
-                    bert_to_port = {
-                        '17': '45017',
-                        '18': '45018', 
-                        '24': '45024',
-                        '25': '45025',
-                        '56': '45056'
-                    }
-                    
-                    # Build SCP command with ProxyJump
-                    scp_cmd = [
-                        'sshpass', '-p', password,
-                        'scp',
-                        '-o', 'StrictHostKeyChecking=no',
-                        '-o', 'UserKnownHostsFile=/dev/null',
-                        '-o', f'ProxyJump=ubuntu@52.54.110.136',
-                        '-P', bert_to_port.get(bert_number, '45024'),
-                        f'fusion@127.0.0.1:/home/fusion/{created_file}',
-                        local_file
-                    ]
-                    
-                    try:
-                        # Execute file transfer
-                        logger.info(f"Transferring CSV file via SCP: {created_file}")
-                        logger.info(f"SCP command: {' '.join(scp_cmd)}")
-                        scp_result = subprocess.run(scp_cmd, capture_output=True, text=True, timeout=30)
-                        
-                        if scp_result.returncode == 0 and os.path.exists(local_file):
-                            # Read the transferred file
-                            with open(local_file, 'r', encoding='utf-8') as f:
-                                csv_content = f.read()
-                            
-                            logger.info(f"Successfully retrieved CSV content via SCP: {len(csv_content)} bytes")
-                            
-                            # Cleanup
-                            os.remove(local_file)
-                            os.rmdir(temp_dir)
-                        else:
-                            logger.error(f"SCP transfer failed with return code: {scp_result.returncode}")
-                            logger.error(f"SCP stderr: {scp_result.stderr}")
-                            
-                            # Fallback to base64 encoding method
-                            logger.info("Attempting fallback method using base64 encoding...")
-                            
-                            # Set up environment to prevent interactive SSH prompts
-                            env = os.environ.copy()
-                            env['SSH_ASKPASS'] = '/bin/false'
-                            env['DISPLAY'] = ''  # Prevent X11 askpass
-                            
-                            base64_cmd = [
-                                'bash',
-                                bert_tool_path,
-                                '--bert', bert_number,
-                                '--pw', password,
-                                '--cmd', f'base64 /home/fusion/{created_file}'
-                            ]
-                            
-                            base64_result = subprocess.run(base64_cmd, capture_output=True, text=True, timeout=30, env=env)
-                            
-                            if base64_result.returncode == 0:
-                                # Decode base64 content
-                                encoded_content = base64_result.stdout
-                                # Clean bert_tool output
-                                lines = encoded_content.strip().split('\n')
-                                clean_content = []
-                                for line in lines:
-                                    if not any(marker in line for marker in ['▶', '✅', 'running on', 'cd /', 'base64']):
-                                        clean_content.append(line)
-                                
-                                try:
-                                    csv_content = base64.b64decode(''.join(clean_content)).decode('utf-8')
-                                    logger.info(f"Successfully retrieved CSV content via base64: {len(csv_content)} bytes")
-                                except Exception as e:
-                                    logger.error(f"Failed to decode base64 content: {str(e)}")
-                                    csv_content = None
-                            else:
-                                logger.error(f"Base64 fallback failed: {base64_result.stderr}")
-                                csv_content = None
-                            
-                            # Cleanup temp directory if it still exists
-                            if os.path.exists(temp_dir):
-                                if os.path.exists(local_file):
-                                    os.remove(local_file)
-                                os.rmdir(temp_dir)
-                                
-                    except subprocess.TimeoutExpired:
-                        logger.error("SCP command timed out after 30 seconds")
-                        csv_content = None
-                        # Cleanup on timeout
-                        if os.path.exists(local_file):
-                            os.remove(local_file)
-                        if os.path.exists(temp_dir):
-                            os.rmdir(temp_dir)
-                    except Exception as e:
-                        logger.error(f"Error transferring CSV file: {str(e)}")
-                        csv_content = None
-                        # Cleanup on error
-                        if os.path.exists(local_file):
-                            os.remove(local_file)
-                        if os.path.exists(temp_dir):
-                            os.rmdir(temp_dir)
-            
-            return {
-                'status': 'success',
-                'output': result.stdout,
-                'error': '',
-                'created_file': created_file,
-                'csv_content': csv_content,
-                'command_type': command_type
-            }
-        else:
-            logger.error(f"Command failed with return code {result.returncode}")
-            logger.error(f"STDERR: {result.stderr}")
-            return {
-                'status': 'error',
-                'output': result.stdout,
-                'error': result.stderr
-            }
-            
-    except subprocess.TimeoutExpired:
-        logger.error("Command timed out after 5 minutes")
+
+            logger.info(f"Retrieving file via direct SCP: {created_file}")
+            scp_result = subprocess.run(scp_cmd, capture_output=True, text=True, timeout=60)
+
+            if scp_result.returncode == 0 and os.path.exists(local_filepath):
+                with open(local_filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    csv_content = f.read()
+                logger.info(f"Successfully retrieved and read file ({len(csv_content)} bytes)")
+            else:
+                logger.error(f"Direct SCP transfer failed! Stderr: {scp_result.stderr.strip()}")
+                # Fallback did not exist in original, so we report error
+                return {'status': 'error', 'error': f'SCP failed: {scp_result.stderr.strip()}'}
+
+        # === STEP 4: Cleanup remote file ===
+        try:
+            logger.info(f"Attempting to clean up remote file: {remote_filepath}")
+            cleanup_args = ['bash', bert_tool_path, '--bert', bert_number, '--pw', password, '--cmd', f'rm -f "{remote_filepath}"']
+            cleanup_result = subprocess.run(cleanup_args, capture_output=True, text=True, timeout=30)
+            if cleanup_result.returncode != 0:
+                logger.warning(f"Remote cleanup may have failed. Stderr: {cleanup_result.stderr.strip()}")
+        except Exception as e:
+            logger.warning(f"An exception occurred during remote cleanup: {e}")
+
         return {
-            'status': 'error',
-            'error': 'Command timed out after 5 minutes',
-            'output': ''
-        }
-    except Exception as e:
-        logger.error(f"Error executing remote command: {str(e)}")
-        return {
-            'status': 'error',
-            'error': str(e),
-            'output': ''
+            'status': 'success', 'output': exec_result.stdout, 'error': '',
+            'created_file': created_file, 'csv_content': csv_content, 'command_type': command_type
         }
 
+    except Exception as e:
+        logger.error(f"Error in execute_remote_command: {str(e)}")
+        return {'status': 'error', 'error': str(e), 'output': ''}
 
 @capture_exceptions(user_message="Failed to create summary")
 def create_summary(df: pd.DataFrame) -> tuple[str, str]:
@@ -1230,6 +990,11 @@ def generate_imei_commands(
         raw_data_cmd_js = (
             raw_data_cmd.replace("\\", "\\\\").replace("`", "\\`").replace('"', '\\"').replace("'", "\\'")
         )
+        
+        # Also escape model, station, and test_case for JavaScript
+        model_js = model.replace("\\", "\\\\").replace("`", "\\`").replace('"', '\\"').replace("'", "\\'")
+        station_js = station_id.replace("\\", "\\\\").replace("`", "\\`").replace('"', '\\"').replace("'", "\\'")
+        test_case_js = test_case.replace("\\", "\\\\").replace("`", "\\`").replace('"', '\\"').replace("'", "\\'")
 
         # Get machine name and location from station ID
         machine_name, location = get_machine_name_from_station(station_id)
@@ -1274,7 +1039,7 @@ def generate_imei_commands(
                                 onmouseover="this.style.background='#45a049'" onmouseout="this.style.background='#4caf50'">
                             📋
                         </button>
-                        <button onclick='runRemoteCommand("{machine_name}", `{messages_cmd_js}`, "messages")'
+                        <button onclick='runRemoteCommand("{machine_name}", `{messages_cmd_js}`, "messages", "{model_js}", "{station_js}", "{test_case_js}")'
                                 class="run-command-button"
                                 style="background: #2196F3; color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s ease; flex-shrink: 0; font-weight: 600;"
                                 onmouseover="this.style.background='#1976D2'" onmouseout="this.style.background='#2196F3'"
@@ -1296,7 +1061,7 @@ def generate_imei_commands(
                                 onmouseover="this.style.background='#45a049'" onmouseout="this.style.background='#4caf50'">
                             📋
                         </button>
-                        <button onclick='runRemoteCommand("{machine_name}", `{gauge_cmd_js}`, "gauge")'
+                        <button onclick='runRemoteCommand("{machine_name}", `{gauge_cmd_js}`, "gauge", "{model_js}", "{station_js}", "{test_case_js}")'
                                 class="run-command-button"
                                 style="background: #2196F3; color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s ease; flex-shrink: 0; font-weight: 600;"
                                 onmouseover="this.style.background='#1976D2'" onmouseout="this.style.background='#2196F3'"
@@ -1318,7 +1083,7 @@ def generate_imei_commands(
                                 onmouseover="this.style.background='#45a049'" onmouseout="this.style.background='#4caf50'">
                             📋
                         </button>
-                        <button onclick='runRemoteCommand("{machine_name}", `{raw_data_cmd_js}`, "raw_data")'
+                        <button onclick='runRemoteCommand("{machine_name}", `{raw_data_cmd_js}`, "raw_data", "{model_js}", "{station_js}", "{test_case_js}")'
                                 class="run-command-button"
                                 style="background: #2196F3; color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s ease; flex-shrink: 0; font-weight: 600;"
                                 onmouseover="this.style.background='#1976D2'" onmouseout="this.style.background='#2196F3'"

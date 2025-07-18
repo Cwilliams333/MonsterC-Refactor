@@ -505,7 +505,7 @@ function tryToSetValues(model, stationId, testCase, rowIdx) {
 // Add event listener for remote command execution
 window.addEventListener('runRemoteCommand', function(event) {
     console.log('Remote command event received:', event.detail);
-    const { machine, command, type } = event.detail;
+    const { machine, command, type, model, station, testCase } = event.detail;
     
     // Add delay to ensure DOM is ready
     setTimeout(() => {
@@ -519,11 +519,22 @@ window.addEventListener('runRemoteCommand', function(event) {
         const triggerButton = document.querySelector('#js_remote_trigger button') || 
                              document.querySelector('#js_remote_trigger');
         
+        // Also find the new dedicated remote context inputs
+        const remoteModelInput = document.querySelector('#js_remote_model textarea') || 
+                                document.querySelector('#js_remote_model input');
+        const remoteStationInput = document.querySelector('#js_remote_station textarea') || 
+                                  document.querySelector('#js_remote_station input');
+        const remoteTestCaseInput = document.querySelector('#js_remote_test_case textarea') || 
+                                   document.querySelector('#js_remote_test_case input');
+        
         console.log('Found elements:', {
             machineInput: !!machineInput,
             commandInput: !!commandInput,
             typeInput: !!typeInput,
-            triggerButton: !!triggerButton
+            triggerButton: !!triggerButton,
+            remoteModelInput: !!remoteModelInput,
+            remoteStationInput: !!remoteStationInput,
+            remoteTestCaseInput: !!remoteTestCaseInput
         });
         
         if (machineInput && commandInput && typeInput && triggerButton) {
@@ -532,10 +543,18 @@ window.addEventListener('runRemoteCommand', function(event) {
             commandInput.value = command;
             typeInput.value = type;
             
+            // Set the context values if the inputs exist
+            if (remoteModelInput) remoteModelInput.value = model || '';
+            if (remoteStationInput) remoteStationInput.value = station || '';
+            if (remoteTestCaseInput) remoteTestCaseInput.value = testCase || '';
+            
             console.log('Set values:', {
                 machine: machineInput.value,
                 command: commandInput.value.substring(0, 50) + '...',
-                type: typeInput.value
+                type: typeInput.value,
+                model: remoteModelInput ? remoteModelInput.value : 'N/A',
+                station: remoteStationInput ? remoteStationInput.value : 'N/A',
+                testCase: remoteTestCaseInput ? remoteTestCaseInput.value : 'N/A'
             });
             
             // Force Gradio to recognize the change
@@ -545,6 +564,20 @@ window.addEventListener('runRemoteCommand', function(event) {
             machineInput.dispatchEvent(inputEvent);
             commandInput.dispatchEvent(inputEvent);
             typeInput.dispatchEvent(inputEvent);
+            
+            // Dispatch events for context inputs
+            if (remoteModelInput) {
+                remoteModelInput.dispatchEvent(inputEvent);
+                remoteModelInput.dispatchEvent(changeEvent);
+            }
+            if (remoteStationInput) {
+                remoteStationInput.dispatchEvent(inputEvent);
+                remoteStationInput.dispatchEvent(changeEvent);
+            }
+            if (remoteTestCaseInput) {
+                remoteTestCaseInput.dispatchEvent(inputEvent);
+                remoteTestCaseInput.dispatchEvent(changeEvent);
+            }
             
             machineInput.dispatchEvent(changeEvent);
             commandInput.dispatchEvent(changeEvent);
@@ -671,11 +704,14 @@ style.textContent = `
 document.head.appendChild(style);
 
 // Define runRemoteCommand globally so it's available for dynamically generated HTML
-window.runRemoteCommand = function(machineName, command, commandType) {
+window.runRemoteCommand = function(machineName, command, commandType, model, station, testCase) {
     console.log('=== runRemoteCommand CALLED ===');
     console.log('Machine Name:', machineName);
     console.log('Command Type:', commandType);
     console.log('Full Command:', command);
+    console.log('Model:', model);
+    console.log('Station:', station);
+    console.log('Test Case:', testCase);
     console.log('===============================');
     
     // Disable all run buttons to prevent multiple executions
@@ -704,7 +740,10 @@ window.runRemoteCommand = function(machineName, command, commandType) {
         detail: {
             machine: machineName,
             command: command,
-            type: commandType
+            type: commandType,
+            model: model,
+            station: station,
+            testCase: testCase
         }
     });
     window.dispatchEvent(event);
@@ -1515,6 +1554,10 @@ with gr.Blocks(
                 js_remote_machine = gr.Textbox(value="", elem_id="js_remote_machine", interactive=True)
                 js_remote_command = gr.Textbox(value="", elem_id="js_remote_command", interactive=True)
                 js_remote_type = gr.Textbox(value="", elem_id="js_remote_type", interactive=True)
+                # NEW: Dedicated context inputs for remote execution
+                js_remote_model = gr.Textbox(value="", elem_id="js_remote_model", interactive=True)
+                js_remote_station = gr.Textbox(value="", elem_id="js_remote_station", interactive=True)
+                js_remote_test_case = gr.Textbox(value="", elem_id="js_remote_test_case", interactive=True)
                 js_remote_trigger = gr.Button("Execute Remote", elem_id="js_remote_trigger")
 
             with gr.Row():
@@ -3196,7 +3239,7 @@ with gr.Blocks(
     
     js_remote_trigger.click(
         handle_remote_execution_event,
-        inputs=[js_remote_machine, js_remote_command, js_remote_type, js_model, js_station, js_test_case, commands_html_state],
+        inputs=[js_remote_machine, js_remote_command, js_remote_type, js_remote_model, js_remote_station, js_remote_test_case, commands_html_state],
         outputs=[remote_notification_placeholder, csv_result_placeholder, command_ui_placeholder, csv_content_state],
     )
 
