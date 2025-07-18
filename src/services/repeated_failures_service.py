@@ -469,7 +469,7 @@ def execute_remote_command(machine_name: str, command: str, command_type: str) -
 
 
 @capture_exceptions(user_message="Failed to create summary")
-def create_summary(df: pd.DataFrame) -> str:
+def create_summary(df: pd.DataFrame) -> tuple[str, str]:
     """
     Create beautiful HTML summary of the dataframe with enhanced styling.
 
@@ -477,13 +477,13 @@ def create_summary(df: pd.DataFrame) -> str:
         df: DataFrame with repeated failures data
 
     Returns:
-        HTML formatted summary with beautiful styling
+        A tuple of two HTML strings: (header_html, table_html)
     """
     # Calculate severity levels based on failure counts
     max_tc_count = df["TC Count"].max() if len(df) > 0 else 0
 
-    # Create HTML with enhanced styling
-    html_content = f"""
+    # === PART 1: HEADER HTML ===
+    header_html = f"""
     <div style="padding: 20px;">
         <!-- Header Section -->
         <div style="background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); padding: 25px; border-radius: 15px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1);">
@@ -494,10 +494,12 @@ def create_summary(df: pd.DataFrame) -> str:
                 Found <span style="font-size: 28px; font-weight: bold;">{len(df)}</span> instances of repeated failures
             </p>
         </div>
+    </div>
+    """
 
-        <!-- Command Generation Container - Commands will be injected here dynamically -->
-        <div id="command_generation_injection_point"></div>
-
+    # === PART 2: TABLE HTML ===
+    table_html = """
+    <div style="padding: 20px;">
         <!-- Table Container -->
         <div style="background: white; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.08); overflow: hidden;">
             <table style="width: 100%; border-collapse: collapse; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
@@ -581,7 +583,7 @@ def create_summary(df: pd.DataFrame) -> str:
         station_js_escaped = station_id_escaped.replace("'", "\\'")
         result_fail_js_escaped = result_fail_escaped.replace("'", "\\'")
 
-        html_content += f"""
+        table_html += f"""
                     <tr style="background: {row_bg}; transition: all 0.2s ease; cursor: pointer;"
                         onmouseover="this.style.background='linear-gradient(90deg, {severity_bg} 0%, rgba(255,255,255,0) 100%)'; this.style.transform='translateX(5px)';"
                         onmouseout="this.style.background='{row_bg}'; this.style.transform='translateX(0)';"
@@ -619,7 +621,7 @@ def create_summary(df: pd.DataFrame) -> str:
                     </tr>
         """
 
-    html_content += """
+    table_html += """
                 </tbody>
             </table>
         </div>
@@ -635,7 +637,7 @@ def create_summary(df: pd.DataFrame) -> str:
         unique_models = df["Model"].nunique()
         unique_stations = df["Station ID"].nunique()
 
-        html_content += f"""
+        table_html += f"""
             <!-- Total Failures Card -->
             <div style="background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); padding: 20px; border-radius: 12px; color: white; box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3); transition: transform 0.3s ease;">
                 <div style="display: flex; justify-content: space-between; align-items: start;">
@@ -681,7 +683,7 @@ def create_summary(df: pd.DataFrame) -> str:
             </div>
         """
 
-    html_content += """
+    table_html += """
         </div>
 
         <!-- Legend -->
@@ -786,7 +788,7 @@ def create_summary(df: pd.DataFrame) -> str:
     </script>
     """
 
-    return html_content
+    return header_html, table_html
 
 
 @capture_exceptions(user_message="Failed to create plot")
@@ -825,7 +827,7 @@ def create_plot(df: pd.DataFrame) -> go.Figure:
 @capture_exceptions(user_message="Failed to analyze repeated failures")
 def analyze_repeated_failures(
     df: pd.DataFrame, min_failures: int = 4
-) -> Tuple[str, Any, Any, Any, pd.DataFrame]:
+) -> Tuple[str, str, Any, Any, Any, pd.DataFrame]:
     """
     Analyzes repeated failures in test data and returns summary, chart, and interactive components.
 
@@ -834,7 +836,7 @@ def analyze_repeated_failures(
         min_failures: Minimum number of failures to be considered "repeated"
 
     Returns:
-        Tuple of (summary_text, figure, interactive_dataframe, dropdown, original_dataframe)
+        Tuple of (header_html, table_html, figure, dropdown, original_dataframe, repeated_failures_dataframe)
     """
     try:
         # If df is a file object, load it first
@@ -877,7 +879,7 @@ def analyze_repeated_failures(
         repeated_failures = repeated_failures.sort_values("TC Count", ascending=False)
 
         # Create summary using the beautiful HTML format
-        summary = create_summary(repeated_failures)
+        header_html, table_html = create_summary(repeated_failures)
 
         # Create bar chart
         fig = px.bar(
@@ -910,7 +912,8 @@ def analyze_repeated_failures(
 
         logger.info("Successfully completed repeated failures analysis")
         return (
-            summary,
+            header_html,
+            table_html,
             fig,
             gr.Dropdown(
                 choices=dropdown_choices,
@@ -931,13 +934,13 @@ def analyze_repeated_failures(
             <p style="margin: 10px 0 0 0; font-size: 14px; opacity: 0.7;">Please check your input and try again.</p>
         </div>
         """
-        return error_message, None, None, None, None
+        return error_message, "", None, None, None, None
 
 
 @capture_exceptions(user_message="Failed to update summary chart and data")
 def update_summary_chart_and_data(
     repeated_failures_df: pd.DataFrame, sort_by: str, selected_test_cases: List[str]
-) -> Tuple[str, go.Figure]:
+) -> Tuple[str, str, go.Figure]:
     """
     Updates the summary chart based on sorting and filtering preferences.
 
@@ -947,12 +950,12 @@ def update_summary_chart_and_data(
         selected_test_cases: List of selected test cases to filter by
 
     Returns:
-        Tuple of (summary_text, plotly_figure)
+        Tuple of (header_html, table_html, plotly_figure)
     """
 
     # Check for no data
     if repeated_failures_df is None or len(repeated_failures_df) == 0:
-        return "No data available to sort/filter", None
+        return "No data available to sort/filter", "", None
 
     # Make a copy of the dataframe so we don't modify the original
     df = repeated_failures_df.copy()
@@ -998,7 +1001,8 @@ def update_summary_chart_and_data(
     )
 
     # Return the updated summary text and plotly figure
-    return create_summary(df), create_plot(df)
+    header_html, table_html = create_summary(df)
+    return header_html, table_html, create_plot(df)
 
 
 @capture_exceptions(user_message="Failed to update summary")
@@ -1054,7 +1058,9 @@ def update_summary(
         df = df.sort_values(sort_column_map[sort_by], ascending=False)
 
         # Use the beautiful create_summary function
-        return create_summary(df)
+        header_html, table_html = create_summary(df)
+        # For the old update_summary function, we combine them back
+        return header_html + table_html
     except Exception as e:
         logger.error(f"Error updating summary: {str(e)}")
         return f"""

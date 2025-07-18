@@ -368,22 +368,71 @@ window.triggerCommandGeneration = function(model, station, testCase) {
     }
 };
 
+// Global storage for pending row clicks
+window.pendingRowClick = null;
+
 window.handleFailureRowClick = function(model, stationId, testCase, rowIdx) {
     console.log('=== handleFailureRowClick called ===');
     console.log('Parameters:', { model, stationId, testCase, rowIdx });
+    
+    // Validate parameters aren't empty
+    if (!model || !stationId || !testCase) {
+        console.error('Empty parameters received:', { model, stationId, testCase });
+        return;
+    }
+    
+    // Store pending data
+    window.pendingRowClick = { model, stationId, testCase, rowIdx, timestamp: Date.now() };
+    
+    // Add a small delay to ensure DOM is ready
+    setTimeout(() => {
+        tryToSetValues(model, stationId, testCase, rowIdx);
+    }, 100);
+};
+
+function tryToSetValues(model, stationId, testCase, rowIdx) {
 
     // Try multiple selectors to find the components
     const findTextarea = (id) => {
-        return document.querySelector(`#${id} textarea`) ||
-               document.querySelector(`#${id} input`) ||
-               document.querySelector(`[id="${id}"] textarea`) ||
-               document.querySelector(`[id="${id}"] input`);
+        // Try multiple selector patterns
+        const selectors = [
+            `#${id} textarea`,
+            `#${id} input`,
+            `[id="${id}"] textarea`,
+            `[id="${id}"] input`,
+            `#hidden_components_row #${id} textarea`,
+            `#hidden_components_row #${id} input`,
+            `[id*="${id}"] textarea`,
+            `[id*="${id}"] input`
+        ];
+        
+        for (const selector of selectors) {
+            const elem = document.querySelector(selector);
+            if (elem) {
+                console.log(`Found ${id} with selector: ${selector}`);
+                return elem;
+            }
+        }
+        return null;
     };
 
     const findButton = (id) => {
-        return document.querySelector(`#${id} button`) ||
-               document.querySelector(`[id="${id}"] button`) ||
-               document.querySelector(`#${id}`);
+        const selectors = [
+            `#${id} button`,
+            `[id="${id}"] button`,
+            `#hidden_components_row #${id} button`,
+            `[id*="${id}"] button`,
+            `#${id}`
+        ];
+        
+        for (const selector of selectors) {
+            const elem = document.querySelector(selector);
+            if (elem) {
+                console.log(`Found ${id} with selector: ${selector}`);
+                return elem;
+            }
+        }
+        return null;
     };
 
     // Update the hidden Gradio components
@@ -405,6 +454,13 @@ window.handleFailureRowClick = function(model, stationId, testCase, rowIdx) {
         stationInput.value = stationId;
         testCaseInput.value = testCase;
 
+        // Log values after setting
+        console.log('Values set:', {
+            model: modelInput.value,
+            station: stationInput.value,
+            testCase: testCaseInput.value
+        });
+
         // Force Gradio to recognize the change
         const inputEvent = new Event('input', { bubbles: true });
         const changeEvent = new Event('change', { bubbles: true });
@@ -417,12 +473,16 @@ window.handleFailureRowClick = function(model, stationId, testCase, rowIdx) {
         stationInput.dispatchEvent(changeEvent);
         testCaseInput.dispatchEvent(changeEvent);
 
-        console.log('Values set, triggering button click...');
+        console.log('Events dispatched, waiting to trigger button...');
 
         // Small delay then click the trigger button
         setTimeout(() => {
+            console.log('Clicking trigger button...');
             triggerButton.click();
             console.log('Button clicked');
+            
+            // Clear pending data on success
+            window.pendingRowClick = null;
         }, 200);
     } else {
         console.error('Could not find hidden components:', {
@@ -503,50 +563,7 @@ window.addEventListener('runRemoteCommand', function(event) {
     }, 100);  // Delay for DOM readiness
 });
 
-// Monitor for command UI generation and move it to the injection point
-const observer = new MutationObserver(function(mutations) {
-    mutations.forEach(function(mutation) {
-        // Check if command UI was added to the container
-        const container = document.getElementById('command_generation_container');
-        const commandUI = container ? container.querySelector('#command-ui') : null;
-        const injectionPoint = document.getElementById('command_generation_injection_point');
-
-        if (commandUI && injectionPoint && !injectionPoint.contains(commandUI)) {
-            console.log('Moving command UI to injection point');
-            // Move the command UI to the injection point
-            injectionPoint.innerHTML = '';
-            injectionPoint.appendChild(commandUI);
-        }
-        
-        // Check for remote execution result and reset buttons
-        const remoteResult = container ? container.querySelector('#remote-execution-result') : null;
-        if (remoteResult && window.remoteCommandInProgress) {
-            console.log('Remote execution result detected, resetting buttons');
-            window.resetRemoteCommandButtons();
-            
-            // Also execute any scripts in the response
-            const scripts = container.querySelectorAll('script');
-            scripts.forEach(script => {
-                if (script.innerHTML.includes('resetRemoteCommandButtons')) {
-                    console.log('Executing script from response');
-                    try {
-                        eval(script.innerHTML);
-                    } catch (e) {
-                        console.error('Error executing script:', e);
-                    }
-                }
-            });
-        }
-    });
-});
-
-// Start observing the command generation container
-setTimeout(() => {
-    const container = document.getElementById('command_generation_container');
-    if (container) {
-        observer.observe(container, { childList: true, subtree: true });
-    }
-}, 1000);
+// Removed MutationObserver - now using Gradio-native layout with multiple components
 
 // Debug: Check if handleFailureRowClick is available
 console.log('handleFailureRowClick defined:', typeof window.handleFailureRowClick);
@@ -560,11 +577,20 @@ setInterval(() => {
     }
 }, 2000);
 
+// Periodically check for pending row clicks and retry if needed
+setInterval(() => {
+    if (window.pendingRowClick && Date.now() - window.pendingRowClick.timestamp < 5000) {
+        console.log('Retrying pending row click:', window.pendingRowClick);
+        const { model, stationId, testCase, rowIdx } = window.pendingRowClick;
+        tryToSetValues(model, stationId, testCase, rowIdx);
+    }
+}, 1000);
+
 // Periodically check for stuck buttons and reset them if command is not in progress
 setInterval(() => {
     if (!window.remoteCommandInProgress) {
-        const stuckButtons = document.querySelectorAll('button:disabled[title^="Run command"], button.run-command-button:disabled, button:contains("⏳")');
-        const hourglassButtons = Array.from(document.querySelectorAll('button')).filter(btn => btn.innerHTML === '⏳');
+        const stuckButtons = document.querySelectorAll('button:disabled[title^="Run command"], button.run-command-button:disabled');
+        const hourglassButtons = Array.from(document.querySelectorAll('button')).filter(btn => btn.innerHTML === '⏳' || btn.textContent === '⏳');
         
         if (stuckButtons.length > 0 || hourglassButtons.length > 0) {
             console.log('Found stuck buttons, resetting...');
@@ -605,19 +631,31 @@ style.textContent = `
         padding-right: 80px;
     }
 
-    #command_generation_container {
+    #remote_notification_container,
+    #csv_result_container,
+    #command_ui_container {
         transition: all 0.3s ease;
     }
 
     /* Keep hidden components technically visible but minimal */
     #hidden_components_row {
         position: fixed !important;
-        bottom: 5px !important;
-        right: 5px !important;
-        width: 10px !important;
-        height: 10px !important;
+        bottom: -300px !important;
+        right: -300px !important;
+        width: 300px !important;
+        height: 50px !important;
         opacity: 0.001 !important;
-        overflow: hidden !important;
+        overflow: visible !important;
+        pointer-events: all !important;
+        z-index: -1 !important;
+    }
+    
+    #hidden_components_row * {
+        pointer-events: all !important;
+    }
+    
+    #js_trigger button {
+        pointer-events: all !important;
     }
 
     @keyframes spin {
@@ -1043,19 +1081,19 @@ with gr.Blocks(
     /* Keep hidden components technically visible but minimal */
     #hidden_components_row {
         position: fixed !important;
-        bottom: 5px !important;
-        right: 5px !important;
-        width: 10px !important;
-        height: 10px !important;
+        bottom: -100px !important;
+        right: -100px !important;
+        width: 300px !important;
+        height: 100px !important;
         opacity: 0.001 !important;
-        pointer-events: none !important;
-        overflow: hidden !important;
+        pointer-events: all !important;
+        overflow: visible !important;
     }
 
     #hidden_components_row > * {
-        width: 1px !important;
-        height: 1px !important;
-        font-size: 1px !important;
+        width: 100px !important;
+        height: 30px !important;
+        font-size: 12px !important;
     }
 
     /* Allow the button to be clickable even when hidden */
@@ -1421,24 +1459,28 @@ with gr.Blocks(
                     multiselect=True,
                 )
 
-            # First row: Orange repeated failures summary
-            with gr.Row():
-                failures_summary = gr.HTML(
-                    value="""
-                    <div style="text-align: center; padding: 40px; background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); border-radius: 15px; color: white;">
-                        <h2 style="margin: 0; font-size: 28px;">🔍 Repeated Failures Analysis</h2>
-                        <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Click 'Analyze Repeated Failures' to begin</p>
-                    </div>
-                    """,
-                    label="Repeated Failures Summary",
-                )
+            # --- START RE-ARCHITECTED LAYOUT ---
             
-            # Command Generation HTML - Will contain BOTH CSV and commands
-            with gr.Row():
-                command_generation_html = gr.HTML(
-                    value="", 
-                    elem_id="command_generation_container"
-                )
+            # 1. Placeholder for the orange header panel
+            failures_header_placeholder = gr.HTML(
+                value="""
+                <div style="text-align: center; padding: 40px; background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); border-radius: 15px; color: white;">
+                    <h2 style="margin: 0; font-size: 28px;">🔍 Repeated Failures Analysis</h2>
+                    <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Click 'Analyze Repeated Failures' to begin</p>
+                </div>
+                """,
+                label="Repeated Failures Summary Header"
+            )
+            
+            # 2. Placeholders for our dynamic content, in the correct order
+            remote_notification_placeholder = gr.HTML(value="", elem_id="remote_notification_placeholder")
+            csv_result_placeholder = gr.HTML(value="", elem_id="csv_result_placeholder")
+            command_ui_placeholder = gr.HTML(value="", elem_id="command_ui_placeholder")
+            
+            # 3. Placeholder for the main results table
+            failures_table_placeholder = gr.HTML(value="", label="Repeated Failures Table")
+            
+            # --- END RE-ARCHITECTED LAYOUT ---
 
             # Hidden state to store the full dataframe for command generation
             full_df_state = gr.State()
@@ -1458,7 +1500,8 @@ with gr.Blocks(
             commands_html_state = gr.State("")
 
             # Hidden components for JavaScript interaction
-            with gr.Row(visible=False):
+            # Using elem_id and CSS to hide instead of visible=False to ensure DOM elements are rendered
+            with gr.Row(elem_id="hidden_components_row"):
                 js_model = gr.Textbox(value="", elem_id="js_model", interactive=True)
                 js_station = gr.Textbox(
                     value="", elem_id="js_station", interactive=True
@@ -2011,22 +2054,23 @@ with gr.Blocks(
 
     @capture_exceptions(
         user_message="Repeated failures analysis failed",
-        return_value=(None, None, None, None, None),
+        return_value=(None, None, None, None, None, None),
     )
     def analyze_repeated_failures_wrapped(file, min_failures):
         """Wrapper for analyze_repeated_failures with error handling."""
         logger.info(f"Analyzing repeated failures with minimum: {min_failures}")
         (
-            summary,
+            header_html,
+            table_html,
             fig,
             dropdown,
             original_df,
             repeated_failures_df,
         ) = analyze_repeated_failures(file, min_failures)
-        # Return all values including both dataframes
-        return summary, fig, dropdown, original_df, repeated_failures_df
+        # Return all values including header and table separately
+        return header_html, table_html, fig, dropdown, original_df, repeated_failures_df
 
-    @capture_exceptions(user_message="Summary update failed", return_value=None)
+    @capture_exceptions(user_message="Summary update failed", return_value=(None, None, None))
     def update_summary_chart_and_data_wrapped(
         repeated_failures_df, sort_by, selected_test_cases
     ):
@@ -2893,15 +2937,20 @@ with gr.Blocks(
         analyze_repeated_failures_wrapped,
         inputs=[file_input, min_failures],
         outputs=[
-            failures_summary,
-            failures_chart,
-            test_case_filter,
-            full_df_state,
-            repeated_failures_state,
+            failures_header_placeholder,   # Output 1 -> Header placeholder
+            failures_table_placeholder,    # Output 2 -> Table placeholder
+            failures_chart,                # Output 3 -> Chart
+            test_case_filter,              # Output 4 -> Dropdown
+            full_df_state,                 # Output 5 -> State
+            repeated_failures_state,       # Output 6 -> State
         ],
     ).then(
-        lambda: "",  # Clear the command generation HTML
-        outputs=[command_generation_html],
+        lambda: {
+            remote_notification_placeholder: "",
+            csv_result_placeholder: "",
+            command_ui_placeholder: ""
+        },  # Clear all placeholder components
+        outputs=[remote_notification_placeholder, csv_result_placeholder, command_ui_placeholder],
     )
 
     # Add select/clear all handler
@@ -2915,39 +2964,62 @@ with gr.Blocks(
     test_case_filter.change(
         update_summary_chart_and_data_wrapped,
         inputs=[repeated_failures_state, sort_by, test_case_filter],
-        outputs=[failures_summary, failures_chart],
+        outputs=[failures_header_placeholder, failures_table_placeholder, failures_chart],
     )
 
     # Add change handler for sort_by dropdown
     sort_by.change(
         update_summary_chart_and_data_wrapped,
         inputs=[repeated_failures_state, sort_by, test_case_filter],
-        outputs=[failures_summary, failures_chart],
+        outputs=[failures_header_placeholder, failures_table_placeholder, failures_chart],
     )
 
     # JavaScript event handling for HTML table row clicks
     def handle_row_click_event(model, station, test_case, full_df, csv_content):
         """Handle row click from JavaScript event"""
-        logger.info(f"Row clicked: {model}, {station}, {test_case}")
+        logger.info(f"=== handle_row_click_event called ===")
+        logger.info(f"Model: '{model}' (type: {type(model)})")
+        logger.info(f"Station: '{station}' (type: {type(station)})")
+        logger.info(f"Test case: '{test_case}' (type: {type(test_case)})")
+        logger.info(f"DataFrame available: {full_df is not None}")
+        logger.info(f"CSV content available: {csv_content is not None}")
+        
+        # Check if parameters are empty
+        if not model or not station or not test_case:
+            logger.error(f"Empty parameters received: model='{model}', station='{station}', test_case='{test_case}'")
+            return {
+                remote_notification_placeholder: "<div style='color: red;'>Error: Empty parameters received from row click</div>",
+                csv_result_placeholder: csv_content if csv_content else "",
+                command_ui_placeholder: "",
+                csv_content_state: csv_content,
+                commands_html_state: ""
+            }
+        
         if model and station and test_case and full_df is not None:
             commands_html = generate_imei_commands_wrapped(
                 full_df, model, station, test_case
             )
-            # Always put CSV first, then commands
-            combined_html = f"""
-            <div id="combined-content">
-                {csv_content if csv_content else ""}
-                {commands_html}
-            </div>
-            """
-            return combined_html, csv_content, commands_html
-        return "", "", ""
+            # Return dictionary to update multiple components
+            return {
+                remote_notification_placeholder: "",  # Clear any previous notifications
+                csv_result_placeholder: csv_content if csv_content else "",
+                command_ui_placeholder: commands_html,
+                csv_content_state: csv_content,
+                commands_html_state: commands_html
+            }
+        return {
+            remote_notification_placeholder: "",
+            csv_result_placeholder: "",
+            command_ui_placeholder: "",
+            csv_content_state: "",
+            commands_html_state: ""
+        }
 
     # Connect the JavaScript trigger
     js_trigger.click(
         handle_row_click_event,
         inputs=[js_model, js_station, js_test_case, full_df_state, csv_content_state],
-        outputs=[command_generation_html, csv_content_state, commands_html_state],
+        outputs=[remote_notification_placeholder, csv_result_placeholder, command_ui_placeholder, csv_content_state, commands_html_state],
     )
     
     # Handler for remote command execution
@@ -3068,12 +3140,13 @@ with gr.Blocks(
                         </div>
                         """
                 
-                # Combine the notification and CSV display
-                combined_html = f"""
-                {command_notification_html}
-                {csv_display_content}
-                """
-                return combined_html, csv_display_content
+                # Return dictionary to update multiple components
+                return {
+                    remote_notification_placeholder: command_notification_html,
+                    csv_result_placeholder: csv_display_content,
+                    command_ui_placeholder: existing_commands_html if existing_commands_html else "",
+                    csv_content_state: csv_display_content
+                }
                 
             else:
                 error_msg = result.get('error', 'Unknown error occurred')
@@ -3092,14 +3165,13 @@ with gr.Blocks(
                 </script>
                 """
                 
-                # Return error notification with existing commands preserved
-                combined_html = f"""
-                <div id="combined-content">
-                    {error_notification_html}
-                    {existing_commands_html if existing_commands_html else ""}
-                </div>
-                """
-                return combined_html, ""
+                # Return dictionary with error notification
+                return {
+                    remote_notification_placeholder: error_notification_html,
+                    csv_result_placeholder: "",
+                    command_ui_placeholder: existing_commands_html if existing_commands_html else "",
+                    csv_content_state: ""
+                }
             
         except Exception as e:
             logger.error(f"Error in handle_remote_execution_event: {str(e)}")
@@ -3115,12 +3187,17 @@ with gr.Blocks(
                 }}
             </script>
             """
-            return error_html, ""
+            return {
+                remote_notification_placeholder: error_html,
+                csv_result_placeholder: "",
+                command_ui_placeholder: "",
+                csv_content_state: ""
+            }
     
     js_remote_trigger.click(
         handle_remote_execution_event,
         inputs=[js_remote_machine, js_remote_command, js_remote_type, js_model, js_station, js_test_case, commands_html_state],
-        outputs=[command_generation_html, csv_content_state],
+        outputs=[remote_notification_placeholder, csv_result_placeholder, command_ui_placeholder, csv_content_state],
     )
 
     # Set up polling mechanism to check for row clicks
